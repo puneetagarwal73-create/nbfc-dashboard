@@ -119,32 +119,36 @@ html, body, [class*="css"] {{
     border-radius: 12px;
     padding: 18px 20px;
 }}
+/* Force ALL text inside metric cards to be dark and fully opaque */
+[data-testid="metric-container"] * {{
+    opacity: 1 !important;
+    filter: none !important;
+}}
 [data-testid="metric-container"] label,
-[data-testid="metric-container"] label p,
-[data-testid="metric-container"] div[data-testid="stMetricLabel"] p {{
+[data-testid="metric-container"] label *,
+[data-testid="metric-container"] [data-testid="stMetricLabel"],
+[data-testid="metric-container"] [data-testid="stMetricLabel"] * {{
     color: #475569 !important;
     font-size: 11px !important;
     font-weight: 700 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    opacity: 1 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
 }}
-[data-testid="metric-container"] [data-testid="metric-value"],
 [data-testid="metric-container"] [data-testid="stMetricValue"],
-[data-testid="metric-container"] [data-testid="stMetricValue"] > div {{
-    color: {TEXT} !important;
+[data-testid="metric-container"] [data-testid="stMetricValue"] *,
+[data-testid="metric-container"] [data-testid="metric-value"],
+[data-testid="metric-container"] [data-testid="metric-value"] * {{
+    color: #0f172a !important;
     font-size: 26px !important;
     font-weight: 800 !important;
-    opacity: 1 !important;
 }}
-[data-testid="metric-container"] [data-testid="metric-delta"],
 [data-testid="metric-container"] [data-testid="stMetricDelta"],
-[data-testid="metric-container"] [data-testid="stMetricDelta"] svg,
-[data-testid="metric-container"] [data-testid="stMetricDelta"] span {{
-    color: #1e7e34 !important;
+[data-testid="metric-container"] [data-testid="stMetricDelta"] *,
+[data-testid="metric-container"] [data-testid="metric-delta"],
+[data-testid="metric-container"] [data-testid="metric-delta"] * {{
+    color: #15803d !important;
     font-size: 12px !important;
     font-weight: 600 !important;
-    opacity: 1 !important;
 }}
 
 /* ── headers ── */
