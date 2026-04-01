@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import os
+from datetime import datetime, timedelta
 
 st.set_page_config(
     page_title="NBFC Intelligence",
@@ -811,38 +812,58 @@ TICKER_MAP = {
     "360 ONE Prime Limited":                                "360ONE.NS",
 }
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600)
 def fetch_valuation_data():
     import yfinance as yf
-    from datetime import datetime, timedelta
     rows = []
     end = datetime.today()
     start = end - timedelta(days=370)
+    all_tickers = list(TICKER_MAP.values())
+    # Batch download price history for all tickers at once (faster, more reliable)
+    try:
+        hist_all = yf.download(all_tickers, start=start.strftime("%Y-%m-%d"),
+                               end=end.strftime("%Y-%m-%d"), interval="1mo",
+                               auto_adjust=True, progress=False)["Close"]
+    except Exception:
+        hist_all = pd.DataFrame()
+
     for name, ticker in TICKER_MAP.items():
         try:
             t = yf.Ticker(ticker)
-            info = t.info
-            pe   = info.get("trailingPE")
-            pb   = info.get("priceToBook")
-            mktcap = info.get("marketCap")
-            price  = info.get("currentPrice") or info.get("regularMarketPrice")
-            hist = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), interval="1mo")
-            if len(hist) >= 12 and price:
-                old_price = hist["Close"].iloc[0]
-                price_chg = round((price / old_price - 1) * 100, 1) if old_price > 0 else None
-            else:
-                price_chg = None
+            info = t.fast_info
+            pe     = getattr(info, "pe_ratio", None)
+            pb     = getattr(info, "price_to_book", None)
+            mktcap = getattr(info, "market_cap", None)
+            price  = getattr(info, "last_price", None)
+            # Fallback to .info for PE/PB if fast_info missing
+            if pe is None or pb is None:
+                full = t.info
+                pe = pe or full.get("trailingPE")
+                pb = pb or full.get("priceToBook")
+                mktcap = mktcap or full.get("marketCap")
+                price  = price or full.get("currentPrice") or full.get("regularMarketPrice")
+            # 12M price change from batch download
+            price_chg = None
+            if not hist_all.empty and ticker in hist_all.columns:
+                col = hist_all[ticker].dropna()
+                if len(col) >= 2 and price:
+                    price_chg = round((price / col.iloc[0] - 1) * 100, 1)
+            elif not hist_all.empty and len(hist_all.columns) == 1:
+                # single ticker fallback
+                col = hist_all.iloc[:, 0].dropna()
+                if len(col) >= 2 and price:
+                    price_chg = round((price / col.iloc[0] - 1) * 100, 1)
             rows.append({
                 "name":      name,
-                "ticker":    ticker.replace(".NS",""),
-                "pe_ttm":    round(pe, 1)       if pe       else None,
-                "pb":        round(pb, 2)       if pb       else None,
-                "mktcap_cr": round(mktcap/1e7)  if mktcap   else None,
-                "price":     round(price, 1)    if price    else None,
+                "ticker":    ticker.replace(".NS", ""),
+                "pe_ttm":    round(float(pe), 1)       if pe and float(pe) > 0  else None,
+                "pb":        round(float(pb), 2)       if pb and float(pb) > 0  else None,
+                "mktcap_cr": round(float(mktcap)/1e7)  if mktcap               else None,
+                "price":     round(float(price), 1)    if price                 else None,
                 "price_chg": price_chg,
             })
         except Exception:
-            rows.append({"name": name, "ticker": ticker.replace(".NS",""),
+            rows.append({"name": name, "ticker": ticker.replace(".NS", ""),
                          "pe_ttm": None, "pb": None, "mktcap_cr": None,
                          "price": None, "price_chg": None})
     return pd.DataFrame(rows)
@@ -855,6 +876,11 @@ with tab7:
         vdf = fetch_valuation_data()
 
     vdf_clean = vdf.dropna(subset=["pe_ttm","pb","price_chg"], how="all").copy()
+    n_loaded = vdf_clean[vdf_clean["price"].notna()].shape[0]
+    if n_loaded == 0:
+        st.error("Could not fetch market data. Please try refreshing the page in a few minutes.")
+        st.stop()
+    st.caption(f"Loaded data for {n_loaded} of {len(TICKER_MAP)} listed NBFCs.")
 
     # ── KPI row ──
     v1, v2, v3 = st.columns(3)
