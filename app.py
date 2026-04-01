@@ -25,14 +25,14 @@ GREEN    = "#059669"   # emerald-600
 RED      = "#dc2626"   # red-600
 AMBER    = "#d97706"   # amber-600
 BLUE     = "#2563eb"   # blue-600
-MUTED    = "#64748b"   # slate-500
+MUTED    = "#475569"   # slate-600 (darker than before)
 BG_PAGE  = "#ffffff"   # white
 BG_CARD  = "#f8fafc"   # slate-50
-BORDER   = "#e2e8f0"   # slate-200
+BORDER   = "#cbd5e1"   # slate-300 (slightly darker border)
 TEXT     = "#0f172a"   # slate-900
-SUBTEXT  = "#64748b"   # slate-500
+SUBTEXT  = "#334155"   # slate-700 — much more readable on white
 
-GRID_COLOR = "#f1f5f9"  # very light grid lines
+GRID_COLOR = "#e2e8f0"  # slightly visible grid lines
 
 PLOT_LAYOUT = dict(
     plot_bgcolor="white",
@@ -41,13 +41,13 @@ PLOT_LAYOUT = dict(
     title_font=dict(size=14, color=TEXT, family="Inter, sans-serif"),
     margin=dict(l=10, r=120, t=48, b=10),
     legend=dict(
-        bgcolor="rgba(255,255,255,0.9)",
+        bgcolor="rgba(255,255,255,0.95)",
         bordercolor=BORDER,
         borderwidth=1,
         font=dict(size=11, color=TEXT),
     ),
-    xaxis=dict(gridcolor=GRID_COLOR, linecolor=BORDER, tickcolor=BORDER, tickfont=dict(color=SUBTEXT)),
-    yaxis=dict(gridcolor=GRID_COLOR, linecolor=BORDER, tickcolor=BORDER, tickfont=dict(color=TEXT)),
+    xaxis=dict(gridcolor=GRID_COLOR, linecolor=BORDER, tickcolor=BORDER, tickfont=dict(color=SUBTEXT, size=11)),
+    yaxis=dict(gridcolor=GRID_COLOR, linecolor=BORDER, tickcolor=BORDER, tickfont=dict(color=TEXT, size=11)),
 )
 
 PALETTE = ["#4f46e5","#059669","#d97706","#dc2626","#2563eb",
@@ -120,9 +120,9 @@ html, body, [class*="css"] {{
     padding: 18px 20px;
 }}
 [data-testid="metric-container"] label {{
-    color: {SUBTEXT} !important;
+    color: #475569 !important;
     font-size: 11px !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }}
@@ -133,7 +133,8 @@ html, body, [class*="css"] {{
 }}
 [data-testid="metric-container"] [data-testid="metric-delta"] {{
     font-size: 12px !important;
-    color: {SUBTEXT} !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
 }}
 
 /* ── headers ── */
@@ -157,22 +158,23 @@ h1, h2 {{ color: {TEXT} !important; font-weight: 700; }}
 /* ── note banner ── */
 .note-banner {{
     background: #fffbeb;
-    border: 1px solid #fde68a;
-    border-left: 3px solid {AMBER};
+    border: 1px solid #f59e0b;
+    border-left: 4px solid {AMBER};
     border-radius: 8px;
     padding: 10px 14px;
     font-size: 12px;
-    color: #92400e;
+    font-weight: 500;
+    color: #78350f;
     margin-bottom: 16px;
 }}
 
 /* ── section label ── */
 .section-label {{
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: {SUBTEXT};
+    color: #334155;
     margin-bottom: 14px;
     padding-bottom: 8px;
     border-bottom: 2px solid {BORDER};
@@ -188,7 +190,8 @@ h1, h2 {{ color: {TEXT} !important; font-weight: 700; }}
 }}
 .page-subtitle {{
     font-size: 13px;
-    color: {SUBTEXT};
+    color: #475569;
+    font-weight: 500;
     margin: 4px 0 24px;
 }}
 
@@ -290,7 +293,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown('<p class="section-label">About</p>', unsafe_allow_html=True)
     st.markdown(f"""
-<span style="color:{SUBTEXT};font-size:12px;line-height:1.9">
+<span style="color:#334155;font-size:12px;line-height:1.9;font-weight:500">
 🏦 RBI/FIDC registry — 9,359 NBFCs<br>
 📈 Screener.in — listed companies<br>
 ⭐ CRISIL / ICRA / CARE reports<br>
@@ -301,7 +304,7 @@ with st.sidebar:
     est_cnt = has_df[has_df["data_quality"] == "estimated"].shape[0] if "data_quality" in has_df.columns else 0
     st.markdown(f"""
 <br>
-<span style="color:{SUBTEXT};font-size:12px">
+<span style="color:#334155;font-size:12px;font-weight:500">
 <b style="color:{TEXT}">{has_df.shape[0]}</b> companies with financials<br>
 <b style="color:{TEXT}">{est_cnt}</b> with estimated data ★
 </span>
@@ -369,7 +372,7 @@ def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f"):
     fig.update_traces(
         texttemplate=f"%{{x:{text_fmt}}}",
         textposition="outside",
-        textfont=dict(size=10, color=SUBTEXT),
+        textfont=dict(size=11, color="#1e293b"),
         cliponaxis=False,
     )
     return fig
