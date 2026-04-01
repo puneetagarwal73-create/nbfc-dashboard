@@ -360,9 +360,9 @@ with k5:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── TABS ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Growth", "Profitability", "Asset Quality",
-    "Credit Losses", "Trends", "Deep Dive", "Universe", "Data",
+    "Credit Losses", "Trends", "Deep Dive", "Valuation", "Universe", "Data",
 ])
 
 # helper: consistent chart styling
@@ -759,8 +759,166 @@ with tab6:
         st.dataframe(disp.style.format("{:,.1f}", na_rep="—"), use_container_width=True)
 
 
-# ═══ TAB 7: UNIVERSE ═════════════════════════════════════════════════════════
+# ═══ TAB 7: VALUATION ════════════════════════════════════════════════════════
+# NSE ticker map — listed NBFCs with financials
+TICKER_MAP = {
+    "Bajaj Finance Ltd.":                                   "BAJFINANCE.NS",
+    "Shriram Finance Limited":                              "SHRIRAMFIN.NS",
+    "Cholamandalam Investment and Finance Company Limited": "CHOLAFIN.NS",
+    "Muthoot Finance Limited":                              "MUTHOOTFIN.NS",
+    "L&T Finance Limited":                                  "LTFH.NS",
+    "Mahindra & Mahindra Financial Services Ltd":           "M&MFIN.NS",
+    "Power Finance Corporation Ltd.":                       "PFC.NS",
+    "REC Limited":                                          "RECLTD.NS",
+    "Indian Railway Finance Corporation Ltd":               "IRFC.NS",
+    "Indian Renewable Energy Development Agency Limited":   "IREDA.NS",
+    "LIC Housing Finance Limited":                          "LICHSGFIN.NS",
+    "PNB Housing Finance Limited":                          "PNBHOUSING.NS",
+    "Bajaj Housing Finance Limited":                        "BAJAJHFL.NS",
+    "Can Fin Homes Limited":                                "CANFINHOME.NS",
+    "Aavas Financiers Limited":                             "AAVAS.NS",
+    "Aptus Value Housing Finance India Limited":            "APTUS.NS",
+    "Repco Home Finance Limited":                           "REPCOHOME.NS",
+    "Home First Finance Company India Limited":             "HOMEFIRST.NS",
+    "India Shelter Finance Corporation Limited":            "INDIASHLTR.NS",
+    "GIC Housing Finance Limited":                          "GICHSGFIN.NS",
+    "Sundaram Finance Limited":                             "SUNDARMFIN.NS",
+    "SBI Cards and Payment Services Limited":               "SBICARD.NS",
+    "Poonawalla Fincorp Limited":                           "POONAWALLA.NS",
+    "IIFL Finance Limited":                                 "IIFL.NS",
+    "Indostar Capital Finance Limited":                     "INDOSTAR.NS",
+    "JM Financial Limited":                                 "JMFINANCIL.NS",
+    "Edelweiss Financial Services Limited":                 "EDELWEISS.NS",
+    "Fedbank Financial Services Limited":                   "FEDFINA.NS",
+    "Northern Arc Capital Limited":                         "NORTHARC.NS",
+    "SK Finance Limited":                                   "SKFINANCE.NS",
+    "SBFC Finance Limited":                                 "SBFC.NS",
+    "MAS Financial Services Limited":                       "MASFIN.NS",
+    "Five Star Business Finance Limited":                   "FIVESTAR.NS",
+    "Ugro Capital Limited":                                 "UGROCAP.NS",
+    "Paisalo Digital Limited":                              "PAISALO.NS",
+    "Arman Financial Services Limited":                     "ARMANFIN.NS",
+    "Manappuram Finance Limited":                           "MANAPPURAM.NS",
+    "Creditaccess Grameen Limited":                         "CREDITACC.NS",
+    "Spandana Sphoorty Financial Limited":                  "SPANDANA.NS",
+    "Fusion Micro Finance Limited":                         "FUSIONMICRO.NS",
+    "Muthoot Microfin Ltd":                                 "MUTHOOTMF.NS",
+    "Satin Creditcare Network Limited":                     "SATIN.NS",
+    "IFCI Limited":                                         "IFCI.NS",
+    "Sammaan Capital Limited":                              "SAMMAANCAP.NS",
+    "Jio Financial Services Limited":                       "JIOFIN.NS",
+    "Aditya Birla Capital Limited":                         "ABCAPITAL.NS",
+    "360 ONE Prime Limited":                                "360ONE.NS",
+}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_valuation_data():
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    rows = []
+    end = datetime.today()
+    start = end - timedelta(days=370)
+    for name, ticker in TICKER_MAP.items():
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info
+            pe   = info.get("trailingPE")
+            pb   = info.get("priceToBook")
+            mktcap = info.get("marketCap")
+            price  = info.get("currentPrice") or info.get("regularMarketPrice")
+            hist = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), interval="1mo")
+            if len(hist) >= 12 and price:
+                old_price = hist["Close"].iloc[0]
+                price_chg = round((price / old_price - 1) * 100, 1) if old_price > 0 else None
+            else:
+                price_chg = None
+            rows.append({
+                "name":      name,
+                "ticker":    ticker.replace(".NS",""),
+                "pe_ttm":    round(pe, 1)       if pe       else None,
+                "pb":        round(pb, 2)       if pb       else None,
+                "mktcap_cr": round(mktcap/1e7)  if mktcap   else None,
+                "price":     round(price, 1)    if price    else None,
+                "price_chg": price_chg,
+            })
+        except Exception:
+            rows.append({"name": name, "ticker": ticker.replace(".NS",""),
+                         "pe_ttm": None, "pb": None, "mktcap_cr": None,
+                         "price": None, "price_chg": None})
+    return pd.DataFrame(rows)
+
 with tab7:
+    st.markdown('<p class="section-label">Valuation Metrics — Listed NBFCs</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="note-banner">Live data via NSE. P/E is trailing twelve months (TTM). Price change is vs ~12 months ago. Refreshes every hour.</div>', unsafe_allow_html=True)
+
+    with st.spinner("Fetching live market data…"):
+        vdf = fetch_valuation_data()
+
+    vdf_clean = vdf.dropna(subset=["pe_ttm","pb","price_chg"], how="all").copy()
+
+    # ── KPI row ──
+    v1, v2, v3 = st.columns(3)
+    with v1:
+        med_pe = vdf_clean["pe_ttm"].dropna().median()
+        st.metric("Median P/E (TTM)", f"{med_pe:.1f}x")
+    with v2:
+        med_pb = vdf_clean["pb"].dropna().median()
+        st.metric("Median P/B", f"{med_pb:.2f}x")
+    with v3:
+        med_chg = vdf_clean["price_chg"].dropna().median()
+        st.metric("Median 12M Price Chg", f"{med_chg:+.1f}%")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('<p class="section-label">P/E Ratio (TTM)</p>', unsafe_allow_html=True)
+        pe_df = vdf_clean[vdf_clean["pe_ttm"].notna()].sort_values("pe_ttm")
+        pe_df["label"] = pe_df["name"].str[:20]
+        fig = hbar(pe_df, "pe_ttm", "label", "P/E Ratio — lowest to highest", color_scale="Blues_r", text_fmt=".1f")
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        st.markdown('<p class="section-label">Price-to-Book (P/B)</p>', unsafe_allow_html=True)
+        pb_df = vdf_clean[vdf_clean["pb"].notna()].sort_values("pb")
+        pb_df["label"] = pb_df["name"].str[:20]
+        fig2 = hbar(pb_df, "pb", "label", "P/B Ratio — lowest to highest", color_scale="Purples_r", text_fmt=".2f")
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown('<p class="section-label" style="margin-top:8px">12-Month Price Change (%)</p>', unsafe_allow_html=True)
+    chg_df = vdf_clean[vdf_clean["price_chg"].notna()].sort_values("price_chg").copy()
+    chg_df["label"] = chg_df["name"].str[:20]
+    chg_df["color"] = chg_df["price_chg"].apply(lambda x: GREEN if x >= 0 else RED)
+    fig3 = go.Figure(go.Bar(
+        x=chg_df["price_chg"], y=chg_df["label"], orientation="h",
+        marker_color=chg_df["color"],
+        text=chg_df["price_chg"].apply(lambda x: f"{x:+.1f}%"),
+        textposition="outside", textfont=dict(size=11, color="#1e293b"),
+    ))
+    n = len(chg_df)
+    fig3.update_layout(
+        **{**PLOT_LAYOUT, "yaxis": dict(autorange="reversed", gridcolor=BORDER, tickfont=dict(size=11, color=TEXT))},
+        height=max(300, min(n*26+70, 680)), title="12-Month Stock Price Change (%)"
+    )
+    fig3.add_vline(x=0, line_color=BORDER, line_width=1.5)
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # ── Summary table ──
+    st.markdown('<p class="section-label" style="margin-top:8px">Full Valuation Table</p>', unsafe_allow_html=True)
+    tbl = vdf_clean[["ticker","name","price","pe_ttm","pb","mktcap_cr","price_chg"]].copy()
+    tbl.columns = ["Ticker","Company","Price (₹)","P/E (TTM)","P/B","Mkt Cap (₹ Cr)","12M Chg %"]
+    tbl = tbl.sort_values("Mkt Cap (₹ Cr)", ascending=False)
+    tbl["Company"] = tbl["Company"].str[:40]
+    st.dataframe(
+        tbl.style
+           .format({"Price (₹)": "{:,.1f}", "P/E (TTM)": "{:.1f}", "P/B": "{:.2f}",
+                    "Mkt Cap (₹ Cr)": "{:,.0f}", "12M Chg %": "{:+.1f}"}, na_rep="—")
+           .background_gradient(subset=["12M Chg %"], cmap="RdYlGn", vmin=-40, vmax=40),
+        use_container_width=True, height=500
+    )
+
+
+# ═══ TAB 8: UNIVERSE ═════════════════════════════════════════════════════════
+with tab8:
     st.markdown('<p class="section-label">Full NBFC Universe — 9,359 Companies</p>', unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
@@ -791,8 +949,8 @@ with tab7:
     st.dataframe(top_a, use_container_width=True, height=500)
 
 
-# ═══ TAB 8: DATA ═════════════════════════════════════════════════════════════
-with tab8:
+# ═══ TAB 9: DATA ═════════════════════════════════════════════════════════════
+with tab9:
     st.markdown('<p class="section-label">Raw Data & Export</p>', unsafe_allow_html=True)
 
     search = st.text_input("Search company", "", placeholder="Type company name…", label_visibility="collapsed")
