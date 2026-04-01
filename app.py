@@ -937,8 +937,7 @@ with tab7:
     st.dataframe(
         tbl.style
            .format({"Price (₹)": "{:,.1f}", "P/E (TTM)": "{:.1f}", "P/B": "{:.2f}",
-                    "Mkt Cap (₹ Cr)": "{:,.0f}", "12M Chg %": "{:+.1f}"}, na_rep="—")
-           .background_gradient(subset=["12M Chg %"], cmap="RdYlGn", vmin=-40, vmax=40),
+                    "Mkt Cap (₹ Cr)": "{:,.0f}", "12M Chg %": "{:+.1f}"}, na_rep="—"),
         use_container_width=True, height=500
     )
 
