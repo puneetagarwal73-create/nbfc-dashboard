@@ -1,6 +1,6 @@
 """
 NBFC Intelligence Dashboard — India
-FY2021–FY2025 | 9,359 NBFCs | 74 with financial data
+FY2021–FY2026 (incl. quarterly) | 9,359 NBFCs | 74 with financial data
 """
 import streamlit as st
 import pandas as pd
@@ -215,15 +215,29 @@ def load_all():
     return nbfc, fins
 
 
+def _fy_sort_key(fy):
+    """Sort key: FY2025 → (2025, 0), FY2026-Q1 → (2026, 1), FY2026-Q2 → (2026, 2)."""
+    import re
+    m = re.match(r'FY(\d{4})(?:-Q(\d))?', str(fy))
+    if m:
+        return (int(m.group(1)), int(m.group(2)) if m.group(2) else 0)
+    return (0, 0)
+
+
 @st.cache_data(ttl=300)
 def compute_metrics(nbfc_df, fins_df):
     rows = []
     for nbfc_id, grp in fins_df.groupby("nbfc_id"):
-        grp = grp.sort_values("fiscal_year")
+        grp = grp.copy()
+        grp["_sort"] = grp["fiscal_year"].map(_fy_sort_key)
+        grp = grp.sort_values("_sort")
         fys = grp["fiscal_year"].tolist()
 
-        def _cagr(col):
-            s = grp[grp[col].notna()]
+        # Use only annual (non-quarterly) rows for CAGR & avg ratios
+        annual = grp[~grp["fiscal_year"].str.contains("-Q", na=False)]
+
+        def _cagr(col, src=annual):
+            s = src[src[col].notna()]
             if len(s) < 2: return None
             sv, ev, n = s.iloc[0][col], s.iloc[-1][col], len(s)-1
             if sv and sv > 0 and ev and ev > 0:
@@ -235,8 +249,8 @@ def compute_metrics(nbfc_df, fins_df):
             "nbfc_id": nbfc_id,
             "aum_cagr":     _cagr("loan_book") or _cagr("total_assets"),
             "asset_cagr":   _cagr("total_assets"),
-            "avg_roa":      round(grp["roa"].dropna().mean(), 2)  if grp["roa"].notna().any()  else None,
-            "avg_roe":      round(grp["roe"].dropna().mean(), 1)  if grp["roe"].notna().any()  else None,
+            "avg_roa":      round(annual["roa"].dropna().mean(), 2)  if annual["roa"].notna().any()  else None,
+            "avg_roe":      round(annual["roe"].dropna().mean(), 1)  if annual["roe"].notna().any()  else None,
             "latest_gnpa":  grp[grp["gnpa_pct"].notna()].iloc[-1]["gnpa_pct"] if grp["gnpa_pct"].notna().any() else None,
             "avg_gnpa":     round(grp["gnpa_pct"].dropna().mean(), 2) if grp["gnpa_pct"].notna().any() else None,
             "latest_cl":    grp[grp["credit_cost_pct"].notna()].iloc[-1]["credit_cost_pct"] if grp["credit_cost_pct"].notna().any() else None,
@@ -279,7 +293,7 @@ with st.sidebar:
 🏦 RBI/FIDC registry — 9,359 NBFCs<br>
 📈 Screener.in — listed companies<br>
 ⭐ CRISIL / ICRA / CARE reports<br>
-🗓️ Coverage: FY2021–FY2025
+🗓️ Coverage: FY2021–FY2026 (Q1)
 </span>
 """, unsafe_allow_html=True)
 
@@ -307,7 +321,7 @@ filt_df = apply_filters(has_df)
 
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────
 st.markdown('<p class="page-title">NBFC Intelligence</p>', unsafe_allow_html=True)
-st.markdown('<p class="page-subtitle">India\'s Non-Banking Financial Companies · FY2021–FY2025 · RBI/FIDC, Screener.in, Rating Agencies</p>', unsafe_allow_html=True)
+st.markdown('<p class="page-subtitle">India\'s Non-Banking Financial Companies · FY2021–FY2026 (incl. Q1FY26 for select fintechs) · RBI/FIDC, Screener.in, Rating Agencies</p>', unsafe_allow_html=True)
 
 # ── KPI ROW ───────────────────────────────────────────────────────────────────
 k1, k2, k3, k4, k5 = st.columns(5)
@@ -431,6 +445,7 @@ with tab2:
     st.markdown('<p class="section-label" style="margin-top:8px">PAT Trend — Top Companies</p>', unsafe_allow_html=True)
     top_pat = filt_df[filt_df["latest_pat"].notna()].nlargest(min(10,top_n), "latest_pat")
     pat_data = fins_df[fins_df["nbfc_id"].isin(top_pat["id"])].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    pat_data = pat_data.copy(); pat_data["_s"] = pat_data["fiscal_year"].map(_fy_sort_key); pat_data = pat_data.sort_values("_s").drop(columns=["_s"])
     fig4 = px.line(pat_data, x="fiscal_year", y="pat", color="name",
                    color_discrete_sequence=PALETTE,
                    labels={"pat":"Net Profit (₹ Cr)","fiscal_year":"","name":""})
@@ -576,7 +591,8 @@ with tab5:
 
     # Loan book area
     lb_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["loan_book"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
-    fig = px.area(lb_d.sort_values("fiscal_year"), x="fiscal_year", y="loan_book", color="name",
+    lb_d = lb_d.copy(); lb_d["_s"] = lb_d["fiscal_year"].map(_fy_sort_key); lb_d = lb_d.sort_values("_s").drop(columns=["_s"])
+    fig = px.area(lb_d, x="fiscal_year", y="loan_book", color="name",
                   color_discrete_sequence=PALETTE,
                   labels={"loan_book":"Loan Book (₹ Cr)","fiscal_year":"","name":""})
     fig.update_traces(line_width=1.5)
@@ -586,6 +602,7 @@ with tab5:
     c1, c2 = st.columns(2)
     with c1:
         nii_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["nii"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+        nii_d = nii_d.copy(); nii_d["_s"] = nii_d["fiscal_year"].map(_fy_sort_key); nii_d = nii_d.sort_values("_s").drop(columns=["_s"])
         fig2 = px.line(nii_d, x="fiscal_year", y="nii", color="name",
                        color_discrete_sequence=PALETTE,
                        labels={"nii":"NII (₹ Cr)","fiscal_year":"","name":""}, title="Net Interest Income")
@@ -603,6 +620,7 @@ with tab5:
         st.plotly_chart(fig3, use_container_width=True)
 
     roa_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["roa"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    roa_d = roa_d.copy(); roa_d["_s"] = roa_d["fiscal_year"].map(_fy_sort_key); roa_d = roa_d.sort_values("_s").drop(columns=["_s"])
     fig4 = px.line(roa_d, x="fiscal_year", y="roa", color="name",
                    color_discrete_sequence=PALETTE,
                    labels={"roa":"ROA (%)","fiscal_year":"","name":""}, title="Return on Assets Trend")
@@ -621,7 +639,10 @@ with tab6:
 
     crow = has_df[has_df["name"] == sel_co].iloc[0]
     cid  = crow["id"]
-    cfins = fins_df[fins_df["nbfc_id"] == cid].sort_values("fiscal_year")
+    cfins = fins_df[fins_df["nbfc_id"] == cid].copy()
+    cfins["_s"] = cfins["fiscal_year"].map(_fy_sort_key)
+    cfins = cfins.sort_values("_s").drop(columns=["_s"])
+    has_quarterly = cfins["fiscal_year"].str.contains("-Q", na=False).any()
     is_est = crow.get("data_quality") == "estimated"
 
     # Company header
@@ -645,6 +666,8 @@ with tab6:
 
     if is_est:
         st.markdown(f'<div class="note-banner">Data sourced from credit rating agency rationales and investor presentations — not audited financial statements.</div>', unsafe_allow_html=True)
+    if has_quarterly:
+        st.markdown(f'<div class="note-banner">Quarterly entries (e.g. FY2026-Q1) show Q1 figures as-reported; PAT and ROA are not annualized in the chart. Source: CARE Ratings surveillance reports.</div>', unsafe_allow_html=True)
 
     # KPIs
     m1, m2, m3, m4, m5 = st.columns(5)
