@@ -38,7 +38,8 @@ PLOT_LAYOUT = dict(
     plot_bgcolor="white",
     paper_bgcolor="white",
     font=dict(color=TEXT, family="Inter, sans-serif", size=12),
-    margin=dict(l=10, r=120, t=44, b=10),
+    title_font=dict(size=14, color=TEXT, family="Inter, sans-serif"),
+    margin=dict(l=10, r=120, t=48, b=10),
     legend=dict(
         bgcolor="rgba(255,255,255,0.9)",
         bordercolor=BORDER,
