@@ -355,20 +355,20 @@ def style(fig, height=420, legend=True):
     return fig
 
 def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f"):
-    """Horizontal bar — height auto-scales to number of rows (32px each)."""
+    """Horizontal bar — height auto-scales to number of rows."""
     n = len(df)
-    height = max(360, n * 34 + 90)
+    height = max(300, min(n * 26 + 70, 680))  # 26px/row, capped at 680px
     kw = dict(color=x, color_continuous_scale=color_scale)
     fig = px.bar(df, x=x, y=y, orientation="h", title=title, **kw,
                  labels={x: x, y: ""})
-    layout = {**PLOT_LAYOUT, "margin": dict(l=10, r=140, t=44, b=10)}
+    layout = {**PLOT_LAYOUT, "margin": dict(l=10, r=100, t=40, b=10)}
     fig.update_layout(**layout, height=height, showlegend=False, coloraxis_showscale=False)
-    fig.update_yaxes(autorange="reversed", tickfont=dict(size=12, color=TEXT))
-    fig.update_xaxes(tickfont=dict(size=11, color=SUBTEXT))
+    fig.update_yaxes(autorange="reversed", tickfont=dict(size=11, color=TEXT))
+    fig.update_xaxes(tickfont=dict(size=10, color=SUBTEXT))
     fig.update_traces(
         texttemplate=f"%{{x:{text_fmt}}}",
         textposition="outside",
-        textfont=dict(size=11, color=SUBTEXT),
+        textfont=dict(size=10, color=SUBTEXT),
         cliponaxis=False,
     )
     return fig
@@ -380,7 +380,7 @@ with tab1:
     st.markdown(f'<div class="note-banner">★ Estimated data for unlisted companies — sourced from CRISIL/ICRA/CARE rating rationales, not audited accounts.</div>', unsafe_allow_html=True)
 
     df_g = filt_df[filt_df["aum_cagr"].notna()].sort_values("aum_cagr", ascending=False).copy()
-    df_g["label"] = df_g["name"].str[:38] + df_g.apply(lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
+    df_g["label"] = df_g["name"].str[:20] + df_g.apply(lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -398,7 +398,7 @@ with tab1:
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability</p>', unsafe_allow_html=True)
     bub = filt_df[filt_df["aum_cagr"].notna() & filt_df["avg_roa"].notna() & filt_df["disp_assets"].notna()].copy()
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
-    bub["label"] = bub["name"].str[:30]
+    bub["label"] = bub["name"].str[:20]
     fig3 = px.scatter(bub.head(top_n), x="aum_cagr", y="avg_roa", size="sz",
                       color="category", color_discrete_sequence=PALETTE,
                       hover_name="label",
@@ -419,13 +419,13 @@ with tab2:
     c1, c2 = st.columns(2)
     with c1:
         df_roa = filt_df[filt_df["avg_roa"].notna()].sort_values("avg_roa", ascending=False).head(20).copy()
-        df_roa["label"] = df_roa["name"].str[:36]
+        df_roa["label"] = df_roa["name"].str[:20]
         fig = hbar(df_roa, "avg_roa", "label", "Top 20 by Return on Assets (ROA %)",
                    color_scale="Greens", text_fmt=".2f")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         df_roe = filt_df[filt_df["avg_roe"].notna()].sort_values("avg_roe", ascending=False).head(20).copy()
-        df_roe["label"] = df_roe["name"].str[:36]
+        df_roe["label"] = df_roe["name"].str[:20]
         fig2 = hbar(df_roe, "avg_roe", "label", "Top 20 by Return on Equity (ROE %)",
                     color_scale="Blues", text_fmt=".1f")
         st.plotly_chart(fig2, use_container_width=True)
@@ -459,7 +459,7 @@ with tab3:
     st.markdown('<p class="section-label">Asset Quality — GNPA %</p>', unsafe_allow_html=True)
 
     df_gq = filt_df[filt_df["latest_gnpa"].notna()].sort_values("latest_gnpa").copy()
-    df_gq["label"] = df_gq["name"].str[:36]
+    df_gq["label"] = df_gq["name"].str[:20]
 
     c1, c2 = st.columns(2)
     with c1:
@@ -491,10 +491,10 @@ with tab3:
     piv = piv.pivot_table(index="name", columns="fiscal_year", values="gnpa_pct")
     piv["_max"] = piv.max(axis=1)
     piv = piv.sort_values("_max", ascending=False).drop(columns=["_max"]).head(35)
-    piv.index = piv.index.str[:36]
+    piv.index = piv.index.str[:20]
     fig4 = px.imshow(piv, color_continuous_scale="RdYlGn_r", aspect="auto",
                      labels={"color":"GNPA %"})
-    fig4.update_layout(**PLOT_LAYOUT, height=680, coloraxis_colorbar=dict(len=0.5))
+    fig4.update_layout(**PLOT_LAYOUT, height=560, coloraxis_colorbar=dict(len=0.5))
     st.plotly_chart(fig4, use_container_width=True)
 
 
@@ -508,7 +508,7 @@ with tab4:
     cl_raw = cl_raw[cl_raw["name"].isin(filt_df["name"])]
 
     latest_cl = cl_raw.sort_values("fiscal_year").groupby("name", as_index=False).last()
-    latest_cl["label"] = latest_cl["name"].str[:36] + latest_cl.apply(
+    latest_cl["label"] = latest_cl["name"].str[:20] + latest_cl.apply(
         lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
     latest_cl = latest_cl.sort_values("credit_cost_pct")
 
@@ -560,7 +560,7 @@ with tab4:
         delta["delta"] = delta["credit_cost_pct"] - delta["first_cl"]
         delta = delta.dropna(subset=["delta"]).sort_values("delta")
         delta["color"] = delta["delta"].apply(lambda x: GREEN if x < 0 else RED)
-        delta["label2"] = delta["name"].str[:30]
+        delta["label2"] = delta["name"].str[:20]
         fig5 = go.Figure(go.Bar(
             x=delta["delta"], y=delta["label2"], orientation="h",
             marker_color=delta["color"],
@@ -576,10 +576,10 @@ with tab4:
     piv_cl = cl_raw.pivot_table(index="name", columns="fiscal_year", values="credit_cost_pct")
     piv_cl["_max"] = piv_cl.max(axis=1)
     piv_cl = piv_cl.sort_values("_max", ascending=False).drop(columns=["_max"]).head(40)
-    piv_cl.index = piv_cl.index.str[:36]
+    piv_cl.index = piv_cl.index.str[:20]
     fig6 = px.imshow(piv_cl, color_continuous_scale="RdYlGn_r", aspect="auto",
                      labels={"color":"Credit Loss %"})
-    fig6.update_layout(**PLOT_LAYOUT, height=720, coloraxis_colorbar=dict(len=0.5))
+    fig6.update_layout(**PLOT_LAYOUT, height=600, coloraxis_colorbar=dict(len=0.5))
     st.plotly_chart(fig6, use_container_width=True)
 
 
