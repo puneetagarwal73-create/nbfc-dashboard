@@ -899,15 +899,17 @@ with tab7:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown('<p class="section-label">P/E Ratio (TTM)</p>', unsafe_allow_html=True)
-        pe_df = vdf_clean[vdf_clean["pe_ttm"].notna()].sort_values("pe_ttm")
+        pe_df = vdf_clean[vdf_clean["pe_ttm"].notna()].sort_values("pe_ttm", ascending=True)
         pe_df["label"] = pe_df["name"].str[:20]
-        fig = hbar(pe_df, "pe_ttm", "label", "P/E Ratio — lowest to highest", color_scale="Blues_r", text_fmt=".1f")
+        fig = hbar(pe_df, "pe_ttm", "label", "P/E Ratio (TTM) — highest to lowest", color_scale="Blues", text_fmt=".1f")
+        fig.update_yaxes(autorange="reversed")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         st.markdown('<p class="section-label">Price-to-Book (P/B)</p>', unsafe_allow_html=True)
-        pb_df = vdf_clean[vdf_clean["pb"].notna()].sort_values("pb")
+        pb_df = vdf_clean[vdf_clean["pb"].notna()].sort_values("pb", ascending=True)
         pb_df["label"] = pb_df["name"].str[:20]
-        fig2 = hbar(pb_df, "pb", "label", "P/B Ratio — lowest to highest", color_scale="Purples_r", text_fmt=".2f")
+        fig2 = hbar(pb_df, "pb", "label", "P/B Ratio — highest to lowest", color_scale="Purples", text_fmt=".2f")
+        fig2.update_yaxes(autorange="reversed")
         st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown('<p class="section-label" style="margin-top:8px">12-Month Price Change (%)</p>', unsafe_allow_html=True)
