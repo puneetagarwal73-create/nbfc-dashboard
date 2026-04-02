@@ -300,6 +300,69 @@ full_df  = compute_metrics(nbfc_df, fins_clean)
 has_df   = full_df[full_df["has_financials"]].copy()
 
 
+@st.cache_data(ttl=300)
+def compute_fy26_9m(fins_clean, nbfc_df):
+    """
+    For each company with FY2026 quarterly data, compute 9-month cumulative
+    PAT and annualize (× 4/3). For assets/equity use best available quarter
+    (Q3 → Q2 → Q1 → FY2025). Returns one row per company with fy26_* columns.
+    """
+    q_rows = fins_clean[fins_clean["fiscal_year"].isin(["FY2026-Q1","FY2026-Q2","FY2026-Q3"])].copy()
+    fy25   = fins_clean[fins_clean["fiscal_year"] == "FY2025"].copy()
+
+    rows = []
+    for nbfc_id, grp in q_rows.groupby("nbfc_id"):
+        q1 = grp[grp["fiscal_year"]=="FY2026-Q1"]
+        q2 = grp[grp["fiscal_year"]=="FY2026-Q2"]
+        q3 = grp[grp["fiscal_year"]=="FY2026-Q3"]
+
+        # PAT: sum available quarters, annualise
+        pat_vals = [r["pat"] for _, r in [("q1",q1),("q2",q2),("q3",q3)]
+                    if not r.empty and pd.notna(r.iloc[0]["pat"])]
+        if not pat_vals:
+            continue
+        n_qtrs   = len(pat_vals)
+        pat_9m   = sum(pat_vals)
+        pat_ann  = round(pat_9m * 4 / n_qtrs, 1)  # annualise
+        period   = f"9M FY2026 ({n_qtrs}Q ann.)" if n_qtrs < 3 else "9M FY2026 (ann.)"
+
+        # Total assets: best available quarter, then FY2025
+        def _pick(col):
+            for df in [q3, q2, q1]:
+                if not df.empty and pd.notna(df.iloc[0][col]) and df.iloc[0][col] != 0:
+                    return df.iloc[0][col]
+            fy25r = fy25[fy25["nbfc_id"] == nbfc_id]
+            if not fy25r.empty and pd.notna(fy25r.iloc[0][col]):
+                return fy25r.iloc[0][col]
+            return None
+
+        assets = _pick("total_assets")
+        equity = _pick("equity_capital")
+        gnpa   = _pick("gnpa_pct")
+        lb     = _pick("loan_book")
+
+        roa = round(pat_ann / assets * 100, 2) if assets and assets > 0 else None
+        roe = round(pat_ann / equity * 100, 2) if equity and equity > 0 else None
+
+        # Loan book: use Q3 specifically for growth comparison
+        lb_q3 = q3.iloc[0]["loan_book"] if not q3.empty and pd.notna(q3.iloc[0]["loan_book"]) else None
+
+        rows.append({
+            "nbfc_id":       nbfc_id,
+            "fy26_pat_ann":  pat_ann,
+            "fy26_assets":   assets,
+            "fy26_equity":   equity,
+            "fy26_roa":      roa,
+            "fy26_roe":      roe,
+            "fy26_gnpa":     gnpa,
+            "fy26_loan_book": lb_q3 or lb,
+            "fy26_period":   period,
+            "fy26_n_qtrs":   n_qtrs,
+        })
+
+    return pd.DataFrame(rows)
+
+
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown('<p class="section-label">Filters</p>', unsafe_allow_html=True)
@@ -346,6 +409,9 @@ def apply_filters(df):
     if not show_est and "data_quality" in df.columns:
         df = df[df["data_quality"] != "estimated"]
     return df
+
+fy26_df = compute_fy26_9m(fins_clean, nbfc_df)
+has_df  = has_df.merge(fy26_df, left_on="id", right_on="nbfc_id", how="left")
 
 filt_df = apply_filters(has_df)
 
@@ -412,22 +478,39 @@ with tab1:
     st.markdown('<p class="section-label">AUM Growth Rankings — FY2024 → FY2025</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="note-banner">Only companies with audited/official filings are shown. Companies where data was estimated using sector growth rates are excluded.</div>', unsafe_allow_html=True)
 
-    # Compute FY2024→FY2025 YoY growth — audited rows only
-    fy24_lb = fins_clean[fins_clean["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
-        columns={"loan_book":"lb24","total_assets":"ta24"})
-    fy25_lb = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","loan_book","total_assets"]].rename(
+    # Growth: prefer FY2025→FY2026(Q3) where Q3 loan_book exists; else FY2024→FY2025
+    fy25_base = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","loan_book","total_assets"]].rename(
         columns={"loan_book":"lb25","total_assets":"ta25"})
-    growth_raw = fy24_lb.merge(fy25_lb, on="nbfc_id")
-    # Use loan_book if available, fall back to total_assets
-    growth_raw["base24"] = growth_raw["lb24"].combine_first(growth_raw["ta24"])
-    growth_raw["base25"] = growth_raw["lb25"].combine_first(growth_raw["ta25"])
-    growth_raw = growth_raw[(growth_raw["base24"].notna()) & (growth_raw["base25"].notna()) & (growth_raw["base24"] > 0)]
-    growth_raw["yoy_growth"] = (growth_raw["base25"] / growth_raw["base24"] - 1) * 100
-    growth_raw["period"] = "FY2024→FY2025"
+    fy24_base = fins_clean[fins_clean["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
+        columns={"loan_book":"lb24","total_assets":"ta24"})
 
-    df_g = filt_df.merge(growth_raw[["nbfc_id","yoy_growth","period"]], left_on="id", right_on="nbfc_id", how="inner")
+    # FY2026 Q3 loan book from fy26_df
+    fy26_lb = fy26_df[fy26_df["fy26_loan_book"].notna()][["nbfc_id","fy26_loan_book","fy26_period"]]
+
+    # Companies with FY2026 loan book: compute FY25→FY26 growth
+    g26 = fy25_base.merge(fy26_lb, on="nbfc_id")
+    g26["base25"] = g26["lb25"].combine_first(g26["ta25"])
+    g26 = g26[g26["base25"].notna() & g26["base25"] > 0]
+    g26["yoy_growth"] = (g26["fy26_loan_book"] / g26["base25"] - 1) * 100
+    g26["period"] = "FY2025→" + g26["fy26_period"].str.extract(r'(9M FY\d+)')[0].fillna("FY2026(Q3)")
+
+    # Companies without FY2026 loan book: FY24→FY25 growth
+    g25 = fy24_base.merge(fy25_base, on="nbfc_id")
+    g25 = g25[~g25["nbfc_id"].isin(g26["nbfc_id"])]
+    g25["base24"] = g25["lb24"].combine_first(g25["ta24"])
+    g25["base25"] = g25["lb25"].combine_first(g25["ta25"])
+    g25 = g25[g25["base24"].notna() & g25["base25"].notna() & (g25["base24"] > 0)]
+    g25["yoy_growth"] = (g25["base25"] / g25["base24"] - 1) * 100
+    g25["period"] = "FY2024→FY2025"
+
+    growth_raw = pd.concat([
+        g26[["nbfc_id","yoy_growth","period"]],
+        g25[["nbfc_id","yoy_growth","period"]]
+    ], ignore_index=True)
+
+    df_g = filt_df.merge(growth_raw, left_on="id", right_on="nbfc_id", how="inner")
     df_g = df_g.sort_values("yoy_growth", ascending=False)
-    df_g["label"] = df_g["name"].str[:20] + df_g.apply(lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
+    df_g["label"] = df_g["name"].str[:20]
 
     c1, c2 = st.columns(2)
     with c1:
@@ -441,18 +524,20 @@ with tab1:
         fig2.update_traces(marker_color=RED, opacity=0.85)
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Bubble — FY2025 growth vs FY2025 ROA
-    st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (FY2025)</p>', unsafe_allow_html=True)
-    fy25_roa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(columns={"roa":"fy25_roa"})
-    bub = df_g.merge(fy25_roa, left_on="id", right_on="nbfc_id", how="left")
-    bub = bub[bub["fy25_roa"].notna() & bub["disp_assets"].notna()]
+    # Bubble — growth vs latest ROA (FY2026 9M ann. preferred, else FY2025)
+    st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (latest available)</p>', unsafe_allow_html=True)
+    bub = df_g.copy()
+    bub["plot_roa"] = bub["fy26_roa"].combine_first(
+        fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].reindex(bub["id"].values).values
+    )
+    bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
     bub["label"] = bub["name"].str[:20]
-    fig3 = px.scatter(bub.head(top_n), x="yoy_growth", y="fy25_roa", size="sz",
+    fig3 = px.scatter(bub.head(top_n), x="yoy_growth", y="plot_roa", size="sz",
                       color="category", color_discrete_sequence=PALETTE,
                       hover_name="label",
-                      hover_data={"yoy_growth":":.1f","fy25_roa":":.2f","sz":False,"period":True},
-                      labels={"yoy_growth":"AUM Growth FY25 vs FY24 (%)","fy25_roa":"ROA FY2025 (%)","category":"Sector","period":"Period"})
+                      hover_data={"yoy_growth":":.1f","plot_roa":":.2f","sz":False,"period":True},
+                      labels={"yoy_growth":"AUM Growth (%)","plot_roa":"ROA % (latest)","category":"Sector","period":"Period"})
     fig3.add_vline(x=bub["yoy_growth"].median(), line_dash="dot", line_color=BORDER, line_width=1)
     fig3.add_hline(y=0, line_dash="dot", line_color=RED, line_width=1, opacity=0.4)
     fig3.add_annotation(x=bub["yoy_growth"].median()+0.5, y=bub["fy25_roa"].max()*0.95,
@@ -465,29 +550,33 @@ with tab1:
 with tab2:
     st.markdown('<p class="section-label">Profitability — ROA & ROE (FY2025)</p>', unsafe_allow_html=True)
 
-    # Get FY2025 actual roa/roe values
-    fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe","pat"]].copy()
-    fy25_prof["period"] = "FY2025"
-    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="nbfc_id", how="inner")
+    # Use FY2026 9M annualized ROA/ROE where available, fall back to FY2025
+    fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe"]].rename(
+        columns={"roa":"fy25_roa","roe":"fy25_roe"})
+    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="nbfc_id", how="left")
+    prof_df["plot_roa"]    = prof_df["fy26_roa"].combine_first(prof_df["fy25_roa"])
+    prof_df["plot_roe"]    = prof_df["fy26_roe"].combine_first(prof_df["fy25_roe"])
+    prof_df["prof_period"] = prof_df["fy26_period"].combine_first(pd.Series("FY2025", index=prof_df.index))
+    prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()]
 
     c1, c2 = st.columns(2)
     with c1:
-        df_roa = prof_df[prof_df["roa"].notna()].sort_values("roa", ascending=False).head(20).copy()
+        df_roa = prof_df[prof_df["plot_roa"].notna()].sort_values("plot_roa", ascending=False).head(20).copy()
         df_roa["label"] = df_roa["name"].str[:20]
-        fig = hbar(df_roa, "roa", "label", "Top 20 by Return on Assets — FY2025",
-                   color_scale="Greens", text_fmt=".2f", period_col="period")
+        fig = hbar(df_roa, "plot_roa", "label", "Top 20 by ROA — 9M FY2026 ann. (FY2025 where FY26 unavail.)",
+                   color_scale="Greens", text_fmt=".2f", period_col="prof_period")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        df_roe = prof_df[prof_df["roe"].notna()].sort_values("roe", ascending=False).head(20).copy()
+        df_roe = prof_df[prof_df["plot_roe"].notna()].sort_values("plot_roe", ascending=False).head(20).copy()
         df_roe["label"] = df_roe["name"].str[:20]
-        fig2 = hbar(df_roe, "roe", "label", "Top 20 by Return on Equity — FY2025",
-                    color_scale="Blues", text_fmt=".1f", period_col="period")
+        fig2 = hbar(df_roe, "plot_roe", "label", "Top 20 by ROE — 9M FY2026 ann. (FY2025 where FY26 unavail.)",
+                    color_scale="Blues", text_fmt=".1f", period_col="prof_period")
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Sector bar — FY2025 only
-    st.markdown('<p class="section-label" style="margin-top:8px">By Sector — FY2025</p>', unsafe_allow_html=True)
-    sec = prof_df[prof_df["roa"].notna()].groupby("category").agg(
-        avg_roa=("roa","mean"), avg_roe=("roe","mean"), n=("name","count")
+    # Sector bar
+    st.markdown('<p class="section-label" style="margin-top:8px">By Sector — Latest Available</p>', unsafe_allow_html=True)
+    sec = prof_df[prof_df["plot_roa"].notna()].groupby("category").agg(
+        avg_roa=("plot_roa","mean"), avg_roe=("plot_roe","mean"), n=("name","count")
     ).reset_index().sort_values("avg_roa", ascending=False)
     fig3 = px.bar(sec, x="category", y=["avg_roa","avg_roe"], barmode="group",
                   color_discrete_map={"avg_roa": GREEN, "avg_roe": ACCENT},
@@ -495,8 +584,8 @@ with tab2:
     fig3.update_layout(**PLOT_LAYOUT, height=360, xaxis_tickangle=-30)
     st.plotly_chart(fig3, use_container_width=True)
 
-    # PAT trend
-    st.markdown('<p class="section-label" style="margin-top:8px">PAT Trend — Top Companies</p>', unsafe_allow_html=True)
+    # PAT trend — includes FY2026 quarterly rows
+    st.markdown('<p class="section-label" style="margin-top:8px">PAT Trend — Top Companies (incl. FY2026 quarters)</p>', unsafe_allow_html=True)
     top_pat = filt_df[filt_df["latest_pat"].notna()].nlargest(min(10,top_n), "latest_pat")
     pat_data = fins_clean[fins_clean["nbfc_id"].isin(top_pat["id"])].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
     pat_data = pat_data.copy(); pat_data["_s"] = pat_data["fiscal_year"].map(_fy_sort_key); pat_data = pat_data.sort_values("_s").drop(columns=["_s"])
@@ -510,7 +599,7 @@ with tab2:
 
 # ═══ TAB 3: ASSET QUALITY ════════════════════════════════════════════════════
 with tab3:
-    st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025 — quarterly GNPA not available via exchange filings)</p>', unsafe_allow_html=True)
 
     # Use FY2025 GNPA values specifically
     fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(columns={"gnpa_pct":"fy25_gnpa"})
