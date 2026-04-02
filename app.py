@@ -223,7 +223,7 @@ h1, h2 {{ color: {TEXT} !important; font-weight: 700; }}
 
 
 # ── DATA ──────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=301)
 def load_all():
     conn = sqlite3.connect(DB_PATH)
     nbfc = pd.read_sql("SELECT * FROM nbfc", conn)
@@ -243,7 +243,7 @@ def _fy_sort_key(fy):
     return (0, 0)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=301)
 def compute_metrics(nbfc_df, fins_df):
     rows = []
     for nbfc_id, grp in fins_df.groupby("nbfc_id"):
@@ -300,7 +300,7 @@ full_df  = compute_metrics(nbfc_df, fins_clean)
 has_df   = full_df[full_df["has_financials"]].copy()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=301)
 def compute_fy26_9m(fins_clean, nbfc_df):
     """
     For each company with FY2026 quarterly data, compute 9-month cumulative
@@ -418,7 +418,7 @@ def _f26(col):
     """Return a dict mapping nbfc_id → fy26 column value."""
     return {k: v[col] for k, v in _fy26.items() if v.get(col) is not None}
 
-filt_df = apply_filters(has_df)
+filt_df = apply_filters(has_df).reset_index(drop=True)
 
 
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────
@@ -519,9 +519,10 @@ with tab1:
 
     _growth_map   = growth_raw.set_index("nbfc_id")["yoy_growth"].to_dict()
     _period_map   = growth_raw.set_index("nbfc_id")["period"].to_dict()
-    df_g = filt_df[filt_df["id"].isin(_growth_map)].copy()
-    df_g["yoy_growth"] = df_g["id"].map(_growth_map)
+    df_g = filt_df[filt_df["id"].isin(_growth_map)].copy().reset_index(drop=True)
+    df_g["yoy_growth"] = pd.to_numeric(df_g["id"].map(_growth_map), errors="coerce")
     df_g["period"]     = df_g["id"].map(_period_map)
+    df_g = df_g.sort_values("yoy_growth", ascending=False).reset_index(drop=True)
     df_g["label"] = df_g["name"].str[:20]
 
     c1, c2 = st.columns(2)
@@ -541,9 +542,10 @@ with tab1:
     _fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
     _fy26_roa_map = _f26("fy26_roa")
     bub = df_g.copy()
-    bub["fy26_roa"] = bub["id"].map(_fy26_roa_map)
-    bub["fy25_roa"] = bub["id"].map(_fy25_roa_map)
-    bub["plot_roa"] = bub["fy26_roa"].where(bub["fy26_roa"].notna(), bub["fy25_roa"])
+    bub["fy26_roa"] = pd.to_numeric(bub["id"].map(_fy26_roa_map), errors="coerce")
+    bub["fy25_roa"] = pd.to_numeric(bub["id"].map(_fy25_roa_map), errors="coerce")
+    import numpy as _np
+    bub["plot_roa"] = pd.Series(_np.where(bub["fy26_roa"].notna(), bub["fy26_roa"], bub["fy25_roa"]), index=bub.index, dtype=float)
     bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
     bub["label"] = bub["name"].str[:20]
@@ -577,10 +579,16 @@ with tab2:
     prof_df["fy26_roe"]    = prof_df["id"].map(_fy26_roe_p)
     prof_df["fy26_period"] = prof_df["id"].map(_fy26_per_p)
     # FY2026 9M ann. preferred; fall back to FY2025
-    prof_df["plot_roa"]    = prof_df["fy26_roa"].where(prof_df["fy26_roa"].notna(), prof_df["fy25_roa"])
-    prof_df["plot_roe"]    = prof_df["fy26_roe"].where(prof_df["fy26_roe"].notna(), prof_df["fy25_roe"])
+    # Use numpy where to avoid any Series label alignment issues
+    import numpy as np
+    _roa26 = pd.to_numeric(prof_df["fy26_roa"], errors="coerce")
+    _roe26 = pd.to_numeric(prof_df["fy26_roe"], errors="coerce")
+    _roa25 = pd.to_numeric(prof_df["fy25_roa"], errors="coerce")
+    _roe25 = pd.to_numeric(prof_df["fy25_roe"], errors="coerce")
+    prof_df["plot_roa"]    = pd.Series(np.where(_roa26.notna(), _roa26, _roa25), index=prof_df.index, dtype=float)
+    prof_df["plot_roe"]    = pd.Series(np.where(_roe26.notna(), _roe26, _roe25), index=prof_df.index, dtype=float)
     prof_df["prof_period"] = prof_df["fy26_period"].fillna("FY2025")
-    prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()]
+    prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()].reset_index(drop=True)
 
     c1, c2 = st.columns(2)
     with c1:
