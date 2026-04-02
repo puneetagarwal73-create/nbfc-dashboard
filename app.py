@@ -1074,7 +1074,10 @@ Key facts:
         nl_run = st.button("✨ Generate SQL", use_container_width=True)
 
     if nl_run and nl_query.strip():
-        api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+        try:
+            api_key = st.secrets["ANTHROPIC_API_KEY"]
+        except (KeyError, FileNotFoundError):
+            api_key = None
         if not api_key:
             st.warning("Anthropic API key not configured. Add ANTHROPIC_API_KEY to your Streamlit secrets to enable this feature.")
         else:
