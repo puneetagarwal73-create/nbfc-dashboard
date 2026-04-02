@@ -293,7 +293,10 @@ def compute_metrics(nbfc_df, fins_df):
 
 
 nbfc_df, fins_df = load_all()
-full_df  = compute_metrics(nbfc_df, fins_df)
+# fins_clean excludes any row flagged as estimated (is_estimated=1)
+# Used for all charts and metric calculations — only audited/sourced data
+fins_clean = fins_df[fins_df["is_estimated"] == 0].copy()
+full_df  = compute_metrics(nbfc_df, fins_clean)
 has_df   = full_df[full_df["has_financials"]].copy()
 
 
@@ -407,12 +410,12 @@ def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f", p
 # ═══ TAB 1: GROWTH ═══════════════════════════════════════════════════════════
 with tab1:
     st.markdown('<p class="section-label">AUM Growth Rankings — FY2024 → FY2025</p>', unsafe_allow_html=True)
-    st.markdown(f'<div class="note-banner">★ Estimated data for unlisted companies — sourced from CRISIL/ICRA/CARE rating rationales, not audited accounts.</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="note-banner">Only companies with audited/official filings are shown. Companies where data was estimated using sector growth rates are excluded.</div>', unsafe_allow_html=True)
 
-    # Compute FY2024→FY2025 YoY growth from fins_df
-    fy24_lb = fins_df[fins_df["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
+    # Compute FY2024→FY2025 YoY growth — audited rows only
+    fy24_lb = fins_clean[fins_clean["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
         columns={"loan_book":"lb24","total_assets":"ta24"})
-    fy25_lb = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","loan_book","total_assets"]].rename(
+    fy25_lb = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","loan_book","total_assets"]].rename(
         columns={"loan_book":"lb25","total_assets":"ta25"})
     growth_raw = fy24_lb.merge(fy25_lb, on="nbfc_id")
     # Use loan_book if available, fall back to total_assets
@@ -440,7 +443,7 @@ with tab1:
 
     # Bubble — FY2025 growth vs FY2025 ROA
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (FY2025)</p>', unsafe_allow_html=True)
-    fy25_roa = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(columns={"roa":"fy25_roa"})
+    fy25_roa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(columns={"roa":"fy25_roa"})
     bub = df_g.merge(fy25_roa, left_on="id", right_on="nbfc_id", how="left")
     bub = bub[bub["fy25_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
@@ -463,7 +466,7 @@ with tab2:
     st.markdown('<p class="section-label">Profitability — ROA & ROE (FY2025)</p>', unsafe_allow_html=True)
 
     # Get FY2025 actual roa/roe values
-    fy25_prof = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe","pat"]].copy()
+    fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe","pat"]].copy()
     fy25_prof["period"] = "FY2025"
     prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="nbfc_id", how="inner")
 
@@ -495,7 +498,7 @@ with tab2:
     # PAT trend
     st.markdown('<p class="section-label" style="margin-top:8px">PAT Trend — Top Companies</p>', unsafe_allow_html=True)
     top_pat = filt_df[filt_df["latest_pat"].notna()].nlargest(min(10,top_n), "latest_pat")
-    pat_data = fins_df[fins_df["nbfc_id"].isin(top_pat["id"])].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    pat_data = fins_clean[fins_clean["nbfc_id"].isin(top_pat["id"])].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
     pat_data = pat_data.copy(); pat_data["_s"] = pat_data["fiscal_year"].map(_fy_sort_key); pat_data = pat_data.sort_values("_s").drop(columns=["_s"])
     fig4 = px.line(pat_data, x="fiscal_year", y="pat", color="name",
                    color_discrete_sequence=PALETTE,
@@ -510,7 +513,7 @@ with tab3:
     st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025)</p>', unsafe_allow_html=True)
 
     # Use FY2025 GNPA values specifically
-    fy25_gnpa = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(columns={"gnpa_pct":"fy25_gnpa"})
+    fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(columns={"gnpa_pct":"fy25_gnpa"})
     fy25_gnpa["period"] = "FY2025"
     aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="nbfc_id", how="inner")
     aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
@@ -539,7 +542,7 @@ with tab3:
 
     # Sector trend (multi-year context)
     st.markdown('<p class="section-label" style="margin-top:8px">GNPA Trend by Sector (Historical)</p>', unsafe_allow_html=True)
-    gd = fins_df[fins_df["gnpa_pct"].notna()].merge(nbfc_df[["id","category"]], left_on="nbfc_id", right_on="id")
+    gd = fins_clean[fins_clean["gnpa_pct"].notna()].merge(nbfc_df[["id","category"]], left_on="nbfc_id", right_on="id")
     gd = gd[gd["category"].isin(filt_df["category"].unique())]
     sec_g = gd.groupby(["fiscal_year","category"])["gnpa_pct"].mean().reset_index()
     fig3 = px.line(sec_g, x="fiscal_year", y="gnpa_pct", color="category",
@@ -551,7 +554,7 @@ with tab3:
 
     # Heatmap
     st.markdown('<p class="section-label" style="margin-top:8px">GNPA Heatmap</p>', unsafe_allow_html=True)
-    piv = fins_df[fins_df["gnpa_pct"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    piv = fins_clean[fins_clean["gnpa_pct"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
     piv = piv.pivot_table(index="name", columns="fiscal_year", values="gnpa_pct")
     piv["_max"] = piv.max(axis=1)
     piv = piv.sort_values("_max", ascending=False).drop(columns=["_max"]).head(35)
@@ -567,7 +570,7 @@ with tab4:
     st.markdown('<p class="section-label">Annualized Credit Loss Rate = Credit Losses / Loan Book</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="note-banner">Credit losses = net provisions + write-offs − recoveries. Measures actual P&L cost of defaults — distinct from GNPA% (balance sheet stock).</div>', unsafe_allow_html=True)
 
-    cl_raw = fins_df[fins_df["credit_cost_pct"].notna()].merge(
+    cl_raw = fins_clean[fins_clean["credit_cost_pct"].notna()].merge(
         nbfc_df[["id","name","category","data_quality"]], left_on="nbfc_id", right_on="id")
     cl_raw = cl_raw[cl_raw["name"].isin(filt_df["name"])]
 
@@ -658,7 +661,7 @@ with tab5:
     top_lb = filt_df[filt_df["disp_assets"].notna()].nlargest(min(10,top_n), "disp_assets")
 
     # Loan book area
-    lb_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["loan_book"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    lb_d = fins_clean[fins_clean["nbfc_id"].isin(top_lb["id"]) & fins_clean["loan_book"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
     lb_d = lb_d.copy(); lb_d["_s"] = lb_d["fiscal_year"].map(_fy_sort_key); lb_d = lb_d.sort_values("_s").drop(columns=["_s"])
     fig = px.area(lb_d, x="fiscal_year", y="loan_book", color="name",
                   color_discrete_sequence=PALETTE,
@@ -669,7 +672,7 @@ with tab5:
 
     c1, c2 = st.columns(2)
     with c1:
-        nii_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["nii"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+        nii_d = fins_clean[fins_clean["nbfc_id"].isin(top_lb["id"]) & fins_clean["nii"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
         nii_d = nii_d.copy(); nii_d["_s"] = nii_d["fiscal_year"].map(_fy_sort_key); nii_d = nii_d.sort_values("_s").drop(columns=["_s"])
         fig2 = px.line(nii_d, x="fiscal_year", y="nii", color="name",
                        color_discrete_sequence=PALETTE,
@@ -678,7 +681,7 @@ with tab5:
         style(fig2, height=340)
         st.plotly_chart(fig2, use_container_width=True)
     with c2:
-        lay_d = fins_df.merge(nbfc_df[["id","rbi_layer"]], left_on="nbfc_id", right_on="id"
+        lay_d = fins_clean.merge(nbfc_df[["id","rbi_layer"]], left_on="nbfc_id", right_on="id"
                 ).groupby(["fiscal_year","rbi_layer"])["total_assets"].sum().reset_index()
         fig3 = px.bar(lay_d, x="fiscal_year", y="total_assets", color="rbi_layer",
                       barmode="stack", color_discrete_sequence=[ACCENT, GREEN, AMBER],
@@ -687,7 +690,7 @@ with tab5:
         style(fig3, height=340)
         st.plotly_chart(fig3, use_container_width=True)
 
-    roa_d = fins_df[fins_df["nbfc_id"].isin(top_lb["id"]) & fins_df["roa"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
+    roa_d = fins_clean[fins_clean["nbfc_id"].isin(top_lb["id"]) & fins_clean["roa"].notna()].merge(nbfc_df[["id","name"]], left_on="nbfc_id", right_on="id")
     roa_d = roa_d.copy(); roa_d["_s"] = roa_d["fiscal_year"].map(_fy_sort_key); roa_d = roa_d.sort_values("_s").drop(columns=["_s"])
     fig4 = px.line(roa_d, x="fiscal_year", y="roa", color="name",
                    color_discrete_sequence=PALETTE,
