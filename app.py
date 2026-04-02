@@ -508,7 +508,8 @@ with tab1:
         g25[["nbfc_id","yoy_growth","period"]]
     ], ignore_index=True)
 
-    df_g = filt_df.merge(growth_raw, left_on="id", right_on="nbfc_id", how="inner")
+    growth_raw = growth_raw.rename(columns={"nbfc_id":"_gid"})
+    df_g = filt_df.merge(growth_raw, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
     df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g["label"] = df_g["name"].str[:20]
 
@@ -552,11 +553,11 @@ with tab2:
 
     # Use FY2026 9M annualized ROA/ROE where available, fall back to FY2025
     fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe"]].rename(
-        columns={"roa":"fy25_roa","roe":"fy25_roe"})
-    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="nbfc_id", how="left")
+        columns={"nbfc_id":"_pid","roa":"fy25_roa","roe":"fy25_roe"})
+    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="_pid", how="left").drop(columns=["_pid"])
     prof_df["plot_roa"]    = prof_df["fy26_roa"].combine_first(prof_df["fy25_roa"])
     prof_df["plot_roe"]    = prof_df["fy26_roe"].combine_first(prof_df["fy25_roe"])
-    prof_df["prof_period"] = prof_df["fy26_period"].combine_first(pd.Series("FY2025", index=prof_df.index))
+    prof_df["prof_period"] = prof_df["fy26_period"].fillna("FY2025")
     prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()]
 
     c1, c2 = st.columns(2)
@@ -602,9 +603,10 @@ with tab3:
     st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025 — quarterly GNPA not available via exchange filings)</p>', unsafe_allow_html=True)
 
     # Use FY2025 GNPA values specifically
-    fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(columns={"gnpa_pct":"fy25_gnpa"})
+    fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(
+        columns={"nbfc_id":"_gid","gnpa_pct":"fy25_gnpa"})
     fy25_gnpa["period"] = "FY2025"
-    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="nbfc_id", how="inner")
+    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
     aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
     aq_df["label"] = aq_df["name"].str[:20]
 
