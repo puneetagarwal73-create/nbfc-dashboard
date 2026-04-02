@@ -310,9 +310,10 @@ with st.sidebar:
     st.markdown(f"""
 <span style="color:#334155;font-size:12px;line-height:1.9;font-weight:500">
 🏦 RBI/FIDC registry — 9,359 NBFCs<br>
-📈 Screener.in — listed companies<br>
-⭐ CRISIL / ICRA / CARE reports<br>
-🗓️ Coverage: FY2021–FY2026 (Q1)
+📈 Screener.in / yfinance — listed companies<br>
+🏢 Company IR filings — fintech NBFCs<br>
+⭐ CRISIL / ICRA / CARE — unlisted estimates<br>
+🗓️ Coverage: FY2021–FY2025 + FY2026 Q1–Q3
 </span>
 """, unsafe_allow_html=True)
 
@@ -340,14 +341,14 @@ filt_df = apply_filters(has_df)
 
 # ── PAGE HEADER ───────────────────────────────────────────────────────────────
 st.markdown('<p class="page-title">NBFC Intelligence</p>', unsafe_allow_html=True)
-st.markdown('<p class="page-subtitle">India\'s Non-Banking Financial Companies · FY2021–FY2026 (incl. Q1FY26 for select fintechs) · RBI/FIDC, Screener.in, Rating Agencies</p>', unsafe_allow_html=True)
+st.markdown('<p class="page-subtitle">India\'s Non-Banking Financial Companies · FY2021–FY2025 annual + FY2026 Q1–Q3 quarterly · 74 companies · RBI/FIDC, Screener.in, Rating Agencies</p>', unsafe_allow_html=True)
 
 # ── KPI ROW ───────────────────────────────────────────────────────────────────
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
     st.metric("Total NBFCs", "9,359", "RBI registered")
 with k2:
-    st.metric("With Financial Data", str(has_df.shape[0]), "FY2021–FY2025")
+    st.metric("With Financial Data", str(has_df.shape[0]), "FY2021–FY2026")
 with k3:
     ta = has_df["disp_assets"].sum() / 1e5
     st.metric("Combined Assets", f"₹{ta:.1f}L Cr", "tracked companies")
@@ -686,7 +687,7 @@ with tab6:
     if is_est:
         st.markdown(f'<div class="note-banner">Data sourced from credit rating agency rationales and investor presentations — not audited financial statements.</div>', unsafe_allow_html=True)
     if has_quarterly:
-        st.markdown(f'<div class="note-banner">Quarterly entries (e.g. FY2026-Q1) show Q1 figures as-reported; PAT and ROA are not annualized in the chart. Source: CARE Ratings surveillance reports.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="note-banner">Quarterly entries (FY2026-Q1 to Q3) show as-reported figures; PAT and ROA are not annualized. Source: company investor relations disclosures.</div>', unsafe_allow_html=True)
 
     # KPIs
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -767,7 +768,7 @@ TICKER_MAP = {
     "Shriram Finance Limited":                              "SHRIRAMFIN.NS",
     "Cholamandalam Investment and Finance Company Limited": "CHOLAFIN.NS",
     "Muthoot Finance Limited":                              "MUTHOOTFIN.NS",
-    "L&T Finance Limited":                                  "LTFH.NS",
+    "L&T Finance Limited":                                  "LTF.NS",
     "Mahindra & Mahindra Financial Services Ltd":           "M&MFIN.NS",
     "Power Finance Corporation Ltd.":                       "PFC.NS",
     "REC Limited":                                          "RECLTD.NS",
@@ -792,7 +793,7 @@ TICKER_MAP = {
     "Edelweiss Financial Services Limited":                 "EDELWEISS.NS",
     "Fedbank Financial Services Limited":                   "FEDFINA.NS",
     "Northern Arc Capital Limited":                         "NORTHARC.NS",
-    "SK Finance Limited":                                   "SKFINANCE.NS",
+    "SK Finance Limited":                                   "SKFIN.NS",
     "SBFC Finance Limited":                                 "SBFC.NS",
     "MAS Financial Services Limited":                       "MASFIN.NS",
     "Five Star Business Finance Limited":                   "FIVESTAR.NS",
@@ -802,7 +803,7 @@ TICKER_MAP = {
     "Manappuram Finance Limited":                           "MANAPPURAM.NS",
     "Creditaccess Grameen Limited":                         "CREDITACC.NS",
     "Spandana Sphoorty Financial Limited":                  "SPANDANA.NS",
-    "Fusion Micro Finance Limited":                         "FUSIONMICRO.NS",
+    "Fusion Micro Finance Limited":                         "FUSION.NS",
     "Muthoot Microfin Ltd":                                 "MUTHOOTMF.NS",
     "Satin Creditcare Network Limited":                     "SATIN.NS",
     "IFCI Limited":                                         "IFCI.NS",
