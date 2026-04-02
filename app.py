@@ -254,6 +254,7 @@ def compute_metrics(nbfc_df, fins_df):
 
         # Use only annual (non-quarterly) rows for CAGR & avg ratios
         annual = grp[~grp["fiscal_year"].str.contains("-Q", na=False)]
+        annual_fys = annual["fiscal_year"].tolist()
 
         def _cagr(col, src=annual):
             s = src[src[col].notna()]
@@ -264,6 +265,11 @@ def compute_metrics(nbfc_df, fins_df):
 
         lr = grp[grp["total_assets"].notna()]
         latest = lr.iloc[-1] if len(lr) else None
+
+        # Data range labels for hover tooltips
+        fy_range = f"{annual_fys[0]}–{annual_fys[-1]}" if len(annual_fys) >= 2 else (annual_fys[0] if annual_fys else "—")
+        latest_fy_label = fys[-1] if fys else "—"
+
         rows.append({
             "nbfc_id": nbfc_id,
             "aum_cagr":     _cagr("loan_book") or _cagr("total_assets"),
@@ -277,6 +283,8 @@ def compute_metrics(nbfc_df, fins_df):
             "latest_pat":   latest["pat"]          if latest is not None else None,
             "latest_fy":    fys[-1] if fys else None,
             "fy_count":     len(fys),
+            "fy_range":     fy_range,
+            "latest_fy_label": latest_fy_label,
         })
     mdf = pd.DataFrame(rows)
     result = nbfc_df.merge(mdf, left_on="id", right_on="nbfc_id", how="left")
@@ -374,13 +382,15 @@ def style(fig, height=420, legend=True):
     fig.update_yaxes(showgrid=True, gridwidth=1)
     return fig
 
-def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f"):
+def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f", period_col=None):
     """Horizontal bar — height auto-scales to number of rows."""
     n = len(df)
     height = max(300, min(n * 26 + 70, 680))  # 26px/row, capped at 680px
     kw = dict(color=x, color_continuous_scale=color_scale)
+    hover_data = {period_col: True} if period_col and period_col in df.columns else {}
     fig = px.bar(df, x=x, y=y, orientation="h", title=title, **kw,
-                 labels={x: x, y: ""})
+                 labels={x: x, y: "", **({"period_col": "Period"} if period_col else {})},
+                 hover_data=hover_data if hover_data else None)
     layout = {**PLOT_LAYOUT, "margin": dict(l=10, r=100, t=40, b=10)}
     fig.update_layout(**layout, height=height, showlegend=False, coloraxis_showscale=False)
     fig.update_yaxes(autorange="reversed", tickfont=dict(size=11, color=TEXT))
@@ -405,12 +415,12 @@ with tab1:
     c1, c2 = st.columns(2)
     with c1:
         top = df_g.head(20)
-        fig = hbar(top, "aum_cagr", "label", "Fastest Growing", color_scale="Greens", text_fmt=".1f")
+        fig = hbar(top, "aum_cagr", "label", "Fastest Growing", color_scale="Greens", text_fmt=".1f", period_col="fy_range")
         fig.update_traces(marker_color=GREEN, opacity=0.85)
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         bot = df_g.tail(20).sort_values("aum_cagr")
-        fig2 = hbar(bot, "aum_cagr", "label", "Slowest Growing / Declining", color_scale="Reds", text_fmt=".1f")
+        fig2 = hbar(bot, "aum_cagr", "label", "Slowest Growing / Declining", color_scale="Reds", text_fmt=".1f", period_col="fy_range")
         fig2.update_traces(marker_color=RED, opacity=0.85)
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -422,8 +432,8 @@ with tab1:
     fig3 = px.scatter(bub.head(top_n), x="aum_cagr", y="avg_roa", size="sz",
                       color="category", color_discrete_sequence=PALETTE,
                       hover_name="label",
-                      hover_data={"aum_cagr":":.1f","avg_roa":":.2f","sz":False},
-                      labels={"aum_cagr":"AUM CAGR (%)","avg_roa":"Avg ROA (%)","category":"Sector"})
+                      hover_data={"aum_cagr":":.1f","avg_roa":":.2f","sz":False,"fy_range":True},
+                      labels={"aum_cagr":"AUM CAGR (%)","avg_roa":"Avg ROA (%)","category":"Sector","fy_range":"Period"})
     fig3.add_vline(x=bub["aum_cagr"].median(), line_dash="dot", line_color=BORDER, line_width=1)
     fig3.add_hline(y=0, line_dash="dot", line_color=RED, line_width=1, opacity=0.4)
     fig3.add_annotation(x=bub["aum_cagr"].median()+0.5, y=bub["avg_roa"].max()*0.95,
@@ -441,13 +451,13 @@ with tab2:
         df_roa = filt_df[filt_df["avg_roa"].notna()].sort_values("avg_roa", ascending=False).head(20).copy()
         df_roa["label"] = df_roa["name"].str[:20]
         fig = hbar(df_roa, "avg_roa", "label", "Top 20 by Return on Assets (ROA %)",
-                   color_scale="Greens", text_fmt=".2f")
+                   color_scale="Greens", text_fmt=".2f", period_col="fy_range")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         df_roe = filt_df[filt_df["avg_roe"].notna()].sort_values("avg_roe", ascending=False).head(20).copy()
         df_roe["label"] = df_roe["name"].str[:20]
         fig2 = hbar(df_roe, "avg_roe", "label", "Top 20 by Return on Equity (ROE %)",
-                    color_scale="Blues", text_fmt=".1f")
+                    color_scale="Blues", text_fmt=".1f", period_col="fy_range")
         st.plotly_chart(fig2, use_container_width=True)
 
     # Sector bar
@@ -485,12 +495,12 @@ with tab3:
     with c1:
         top20 = df_gq.head(20)
         fig = hbar(top20, "latest_gnpa", "label", "Cleanest Loan Books — Lowest GNPA",
-                   color_scale="Greens_r", text_fmt=".2f")
+                   color_scale="Greens_r", text_fmt=".2f", period_col="latest_fy_label")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         bot20 = df_gq.tail(20).sort_values("latest_gnpa", ascending=False)
         fig2 = hbar(bot20, "latest_gnpa", "label", "Highest NPA Stress",
-                    color_scale="Reds", text_fmt=".2f")
+                    color_scale="Reds", text_fmt=".2f", period_col="latest_fy_label")
         st.plotly_chart(fig2, use_container_width=True)
 
     # Sector trend
@@ -535,12 +545,12 @@ with tab4:
     c1, c2 = st.columns(2)
     with c1:
         fig = hbar(latest_cl.head(20), "credit_cost_pct", "label",
-                   "Lowest Credit Loss Rate (Best)", color_scale="Greens_r", text_fmt=".2f")
+                   "Lowest Credit Loss Rate (Best)", color_scale="Greens_r", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         fig2 = hbar(latest_cl.tail(20).sort_values("credit_cost_pct", ascending=False),
                     "credit_cost_pct", "label", "Highest Credit Loss Rate (Worst)",
-                    color_scale="Reds", text_fmt=".2f")
+                    color_scale="Reds", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig2, use_container_width=True)
 
     # Trend for high-risk names
@@ -897,18 +907,21 @@ with tab7:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    live_date = datetime.today().strftime("%b %d, %Y")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown('<p class="section-label">P/E Ratio (TTM)</p>', unsafe_allow_html=True)
-        pe_df = vdf_clean[vdf_clean["pe_ttm"].notna()].sort_values("pe_ttm", ascending=False)
+        pe_df = vdf_clean[vdf_clean["pe_ttm"].notna()].sort_values("pe_ttm", ascending=False).copy()
         pe_df["label"] = pe_df["name"].str[:20]
-        fig = hbar(pe_df, "pe_ttm", "label", "P/E Ratio (TTM) — highest to lowest", color_scale="Blues", text_fmt=".1f")
+        pe_df["as_of"] = live_date
+        fig = hbar(pe_df, "pe_ttm", "label", "P/E Ratio (TTM) — highest to lowest", color_scale="Blues", text_fmt=".1f", period_col="as_of")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         st.markdown('<p class="section-label">Price-to-Book (P/B)</p>', unsafe_allow_html=True)
-        pb_df = vdf_clean[vdf_clean["pb"].notna()].sort_values("pb", ascending=False)
+        pb_df = vdf_clean[vdf_clean["pb"].notna()].sort_values("pb", ascending=False).copy()
         pb_df["label"] = pb_df["name"].str[:20]
-        fig2 = hbar(pb_df, "pb", "label", "P/B Ratio — highest to lowest", color_scale="Purples", text_fmt=".2f")
+        pb_df["as_of"] = live_date
+        fig2 = hbar(pb_df, "pb", "label", "P/B Ratio — highest to lowest", color_scale="Purples", text_fmt=".2f", period_col="as_of")
         st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown('<p class="section-label" style="margin-top:8px">12-Month Price Change (%)</p>', unsafe_allow_html=True)
@@ -920,6 +933,8 @@ with tab7:
         marker_color=chg_df["color"],
         text=chg_df["price_chg"].apply(lambda x: f"{x:+.1f}%"),
         textposition="outside", textfont=dict(size=11, color="#1e293b"),
+        customdata=[[live_date]] * len(chg_df),
+        hovertemplate="%{y}<br>12M Change: %{x:+.1f}%<br>As of: %{customdata[0]}<extra></extra>",
     ))
     n = len(chg_df)
     fig3.update_layout(
