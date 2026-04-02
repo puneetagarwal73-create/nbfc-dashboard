@@ -526,10 +526,9 @@ with tab1:
 
     # Bubble — growth vs latest ROA (FY2026 9M ann. preferred, else FY2025)
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (latest available)</p>', unsafe_allow_html=True)
-    bub = df_g.copy()
-    bub["plot_roa"] = bub["fy26_roa"].combine_first(
-        fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].reindex(bub["id"].values).values
-    )
+    fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(columns={"roa":"fy25_roa"})
+    bub = df_g.merge(fy25_roa_map, left_on="id", right_on="nbfc_id", how="left")
+    bub["plot_roa"] = bub["fy26_roa"].combine_first(bub["fy25_roa"])
     bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
     bub["label"] = bub["name"].str[:20]
