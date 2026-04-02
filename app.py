@@ -630,35 +630,44 @@ with tab2:
 
 # ═══ TAB 3: ASSET QUALITY ════════════════════════════════════════════════════
 with tab3:
-    st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025 — quarterly GNPA not available via exchange filings)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">Asset Quality — GNPA % (Latest Available)</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="note-banner">Showing latest available GNPA per company. FY2026 quarterly GNPA shown where reported (e.g. KreditBee); others show FY2025.</div>', unsafe_allow_html=True)
 
-    # Use FY2025 GNPA values specifically
-    _fy25_gnpa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["gnpa_pct"].to_dict()
-    aq_df = filt_df.copy()
-    aq_df["fy25_gnpa"] = aq_df["id"].map(_fy25_gnpa_map)
-    aq_df["period"] = "FY2025"
-    aq_df = aq_df[aq_df["fy25_gnpa"].notna()]
-    aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
+    # Use latest available GNPA per company across all periods including FY2026 quarters
+    _gnpa_all = (fins_clean[fins_clean["gnpa_pct"].notna()]
+                 .assign(_sort=lambda d: d["fiscal_year"].map(_fy_sort_key))
+                 .sort_values("_sort")
+                 .groupby("nbfc_id")[["gnpa_pct","fiscal_year"]]
+                 .last()
+                 .reset_index()
+                 .rename(columns={"gnpa_pct":"latest_gnpa_v","fiscal_year":"gnpa_period"}))
+    _gnpa_map   = _gnpa_all.set_index("nbfc_id")["latest_gnpa_v"].to_dict()
+    _gnpa_per   = _gnpa_all.set_index("nbfc_id")["gnpa_period"].to_dict()
+
+    aq_df = filt_df.copy().reset_index(drop=True)
+    aq_df["latest_gnpa_v"] = pd.to_numeric(aq_df["id"].map(_gnpa_map), errors="coerce")
+    aq_df["gnpa_period"]   = aq_df["id"].map(_gnpa_per)
+    aq_df = aq_df[aq_df["latest_gnpa_v"].notna()].sort_values("latest_gnpa_v").reset_index(drop=True)
     aq_df["label"] = aq_df["name"].str[:20]
 
     c1, c2 = st.columns(2)
     with c1:
         top20 = aq_df.head(20)
-        fig = hbar(top20, "fy25_gnpa", "label", "Cleanest Loan Books — Lowest GNPA (FY2025)",
-                   color_scale="Greens_r", text_fmt=".2f", period_col="period")
+        fig = hbar(top20, "latest_gnpa_v", "label", "Cleanest Loan Books — Lowest GNPA",
+                   color_scale="Greens_r", text_fmt=".2f", period_col="gnpa_period")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        bot20 = aq_df.tail(20).sort_values("fy25_gnpa", ascending=False)
-        fig2 = hbar(bot20, "fy25_gnpa", "label", "Highest NPA Stress (FY2025)",
-                    color_scale="Reds", text_fmt=".2f", period_col="period")
+        bot20 = aq_df.tail(20).sort_values("latest_gnpa_v", ascending=False)
+        fig2 = hbar(bot20, "latest_gnpa_v", "label", "Highest NPA Stress",
+                    color_scale="Reds", text_fmt=".2f", period_col="gnpa_period")
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Sector bar — FY2025 GNPA by sector
-    st.markdown('<p class="section-label" style="margin-top:8px">GNPA by Sector — FY2025</p>', unsafe_allow_html=True)
-    sec_fy25 = aq_df.groupby("category")["fy25_gnpa"].mean().reset_index().sort_values("fy25_gnpa", ascending=False)
-    fig_sec = px.bar(sec_fy25, x="category", y="fy25_gnpa", color="fy25_gnpa",
+    # Sector bar — latest GNPA by sector
+    st.markdown('<p class="section-label" style="margin-top:8px">GNPA by Sector — Latest Available</p>', unsafe_allow_html=True)
+    sec_gnpa = aq_df.groupby("category")["latest_gnpa_v"].mean().reset_index().sort_values("latest_gnpa_v", ascending=False)
+    fig_sec = px.bar(sec_gnpa, x="category", y="latest_gnpa_v", color="latest_gnpa_v",
                      color_continuous_scale="RdYlGn_r",
-                     labels={"fy25_gnpa":"Avg GNPA % (FY2025)","category":"Sector"})
+                     labels={"latest_gnpa_v":"Avg GNPA % (latest)","category":"Sector"})
     fig_sec.update_layout(**PLOT_LAYOUT, height=340, xaxis_tickangle=-30, coloraxis_showscale=False)
     st.plotly_chart(fig_sec, use_container_width=True)
 
@@ -690,29 +699,26 @@ with tab3:
 # ═══ TAB 4: CREDIT LOSSES ════════════════════════════════════════════════════
 with tab4:
     st.markdown('<p class="section-label">Annualized Credit Loss Rate = Credit Losses / Loan Book</p>', unsafe_allow_html=True)
-    st.markdown(f'<div class="note-banner">Credit losses = net provisions + write-offs − recoveries. Measures actual P&L cost of defaults — distinct from GNPA% (balance sheet stock).</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="note-banner">Credit losses = net provisions + write-offs − recoveries. Measures actual P&L cost of defaults — distinct from GNPA%. Showing latest available period per company (FY2026 quarter where reported, else FY2025).</div>', unsafe_allow_html=True)
 
     cl_raw = fins_clean[fins_clean["credit_cost_pct"].notna()].merge(
         nbfc_df[["id","name","category","data_quality"]], left_on="nbfc_id", right_on="id")
     cl_raw = cl_raw[cl_raw["name"].isin(filt_df["name"])]
 
-    # Use FY2025 specifically; fall back to latest only for companies missing FY2025
-    fy25_cl = cl_raw[cl_raw["fiscal_year"]=="FY2025"].copy()
-    missing_fy25 = set(cl_raw["name"].unique()) - set(fy25_cl["name"].unique())
-    fallback_cl = cl_raw[cl_raw["name"].isin(missing_fy25)].sort_values("fiscal_year").groupby("name", as_index=False).last()
-    latest_cl = pd.concat([fy25_cl, fallback_cl], ignore_index=True)
-    latest_cl["label"] = latest_cl["name"].str[:20] + latest_cl.apply(
-        lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
+    # Use latest available period per company (includes FY2026 quarters where reported)
+    cl_raw["_sort"] = cl_raw["fiscal_year"].map(_fy_sort_key)
+    latest_cl = cl_raw.sort_values("_sort").groupby("name", as_index=False).last().drop(columns=["_sort"])
+    latest_cl["label"] = latest_cl["name"].str[:20]
     latest_cl = latest_cl.sort_values("credit_cost_pct")
 
     c1, c2 = st.columns(2)
     with c1:
         fig = hbar(latest_cl.head(20), "credit_cost_pct", "label",
-                   "Lowest Credit Loss Rate — FY2025", color_scale="Greens_r", text_fmt=".2f", period_col="fiscal_year")
+                   "Lowest Credit Loss Rate — Latest Available", color_scale="Greens_r", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         fig2 = hbar(latest_cl.tail(20).sort_values("credit_cost_pct", ascending=False),
-                    "credit_cost_pct", "label", "Highest Credit Loss Rate — FY2025",
+                    "credit_cost_pct", "label", "Highest Credit Loss Rate — Latest Available",
                     color_scale="Reds", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig2, use_container_width=True)
 
