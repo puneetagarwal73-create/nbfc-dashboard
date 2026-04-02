@@ -1044,6 +1044,72 @@ fetched_date, verified
 </div>
 """, unsafe_allow_html=True)
 
+    # ── Plain English → SQL ──────────────────────────────────────────────────
+    st.markdown('<p class="section-label">Ask in Plain English</p>', unsafe_allow_html=True)
+
+    SCHEMA_CONTEXT = """
+SQLite database with these tables:
+
+companies(id, name, short_name, sector, business_type, rbi_layer, listed, nse_ticker, data_quality)
+income_statement(company_id, period, period_type, period_end_date, net_interest_income, net_credit_losses, credit_cost_pct, pat, source)
+balance_sheet(company_id, period, period_type, period_end_date, loan_book, total_assets, total_equity, source)
+key_ratios(company_id, period, period_type, period_end_date, roa, roe, gnpa_pct, credit_cost_pct, leverage_ratio, loan_book_growth, asset_growth, pat_growth)
+valuation_snapshots(company_id, snapshot_date, price, market_cap_cr, pe_ttm, pb_ratio, price_chg_12m)
+data_sources(company_id, period, source_type, source_url, fetched_date, verified)
+
+Key facts:
+- All financial values are in ₹ Crore
+- period values: 'FY2021', 'FY2022', 'FY2023', 'FY2024', 'FY2025', 'FY2026-Q1', 'FY2026-Q2', 'FY2026-Q3'
+- period_type: 'annual' or 'quarterly'
+- sector values include: 'Microfinance', 'Housing Finance', 'Affordable Housing', 'Gold Loans', 'Vehicle Finance', 'Consumer & SME', 'Infrastructure Finance', 'SME & Business Loans', 'Diversified Finance', 'Credit Cards'
+- rbi_layer: 'Upper', 'Middle', 'Base'
+- listed: 1 = listed on NSE/BSE, 0 = unlisted
+- data_quality: 'actual' = audited, 'estimated' = projected
+"""
+
+    nl_col, btn_col = st.columns([5, 1])
+    with nl_col:
+        nl_query = st.text_input("Describe what you want to see", placeholder="e.g. Show me the top 10 microfinance companies by loan book in FY2025", label_visibility="collapsed")
+    with btn_col:
+        nl_run = st.button("✨ Generate SQL", use_container_width=True)
+
+    if nl_run and nl_query.strip():
+        api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+        if not api_key:
+            st.warning("Anthropic API key not configured. Add ANTHROPIC_API_KEY to your Streamlit secrets to enable this feature.")
+        else:
+            try:
+                import anthropic
+                with st.spinner("Generating SQL…"):
+                    client = anthropic.Anthropic(api_key=api_key)
+                    msg = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=512,
+                        messages=[{
+                            "role": "user",
+                            "content": f"""Given this database schema:
+{SCHEMA_CONTEXT}
+
+Write a SQLite SELECT query for: {nl_query}
+
+Rules:
+- Return ONLY the SQL query, no explanation, no markdown code blocks
+- Use table aliases (c for companies, k for key_ratios, b for balance_sheet, i for income_statement)
+- Always JOIN companies to get short_name and sector
+- LIMIT to 50 rows unless the user specifies otherwise
+- Only use SELECT, never INSERT/UPDATE/DELETE"""
+                        }]
+                    )
+                generated_sql = msg.content[0].text.strip().removeprefix("```sql").removeprefix("```").removesuffix("```").strip()
+                st.session_state["generated_sql"] = generated_sql
+            except Exception as e:
+                st.error(f"Could not generate SQL: {e}")
+
+    # If we have a generated query, show it in the editor below
+    if "generated_sql" in st.session_state:
+        st.markdown(f'<div class="note-banner" style="border-left-color:{ACCENT}">✨ Generated SQL — review and run below</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
     # ── Example queries ──
     EXAMPLES = {
         "Top 15 by ROA (FY2025)": """SELECT c.short_name, c.sector, k.roa, k.roe, k.gnpa_pct, k.leverage_ratio
@@ -1098,7 +1164,11 @@ ORDER BY b.loan_book DESC""",
     with col_ex:
         selected_example = st.selectbox("Load an example query", ["— write your own —"] + list(EXAMPLES.keys()), label_visibility="collapsed")
 
-    default_query = EXAMPLES.get(selected_example, "SELECT c.short_name, c.sector, k.roa, k.roe, k.gnpa_pct\nFROM key_ratios k JOIN companies c ON k.company_id = c.id\nWHERE k.period = 'FY2025'\nORDER BY k.roa DESC\nLIMIT 20")
+    # Generated SQL from plain English takes priority, then example, then default
+    if "generated_sql" in st.session_state and selected_example == "— write your own —":
+        default_query = st.session_state.pop("generated_sql")
+    else:
+        default_query = EXAMPLES.get(selected_example, "SELECT c.short_name, c.sector, k.roa, k.roe, k.gnpa_pct\nFROM key_ratios k JOIN companies c ON k.company_id = c.id\nWHERE k.period = 'FY2025'\nORDER BY k.roa DESC\nLIMIT 20")
 
     query = st.text_area("SQL query", value=default_query, height=160, label_visibility="collapsed")
 
