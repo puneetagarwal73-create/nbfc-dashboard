@@ -512,7 +512,12 @@ with tab1:
         g25[["nbfc_id","yoy_growth","period"]]
     ], ignore_index=True)
 
-    df_g = filt_df.merge(growth_raw.rename(columns={"nbfc_id":"_gid"}), left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
+    _growth_map   = growth_raw.set_index("nbfc_id")["yoy_growth"].to_dict()
+    _period_map   = growth_raw.set_index("nbfc_id")["period"].to_dict()
+    df_g = filt_df[filt_df["id"].isin(_growth_map)].copy()
+    df_g["yoy_growth"] = df_g["id"].map(_growth_map)
+    df_g["period"]     = df_g["id"].map(_period_map)
+    df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g["label"] = df_g["name"].str[:20]
 
@@ -530,10 +535,10 @@ with tab1:
 
     # Bubble — growth vs latest ROA (FY2026 9M ann. preferred, else FY2025)
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (latest available)</p>', unsafe_allow_html=True)
-    fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(
-        columns={"nbfc_id":"_roa_id","roa":"fy25_roa"})
-    bub = df_g.merge(fy25_roa_map, left_on="id", right_on="_roa_id", how="left").drop(columns=["_roa_id"], errors="ignore")
-    bub["plot_roa"] = bub["fy26_roa"].combine_first(bub["fy25_roa"])
+    _fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
+    bub = df_g.copy()
+    bub["fy25_roa"] = bub["id"].map(_fy25_roa_map)
+    bub["plot_roa"] = bub["fy26_roa"].where(bub["fy26_roa"].notna(), bub["fy25_roa"])
     bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
     bub["label"] = bub["name"].str[:20]
@@ -554,13 +559,16 @@ with tab1:
 with tab2:
     st.markdown('<p class="section-label">Profitability — ROA & ROE (FY2025)</p>', unsafe_allow_html=True)
 
-    # Use FY2026 9M annualized ROA/ROE where available, fall back to FY2025
-    fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe"]].rename(
-        columns={"nbfc_id":"_pid","roa":"fy25_roa","roe":"fy25_roe"})
-    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="_pid", how="left").drop(columns=["_pid"], errors="ignore")
-    prof_df["plot_roa"]    = prof_df["fy26_roa"].combine_first(prof_df["fy25_roa"])
-    prof_df["plot_roe"]    = prof_df["fy26_roe"].combine_first(prof_df["fy25_roe"])
-    prof_df["prof_period"] = prof_df["fy26_period"].fillna("FY2025")
+    # Map FY2025 roa/roe via dictionaries — avoids any merge that could duplicate columns
+    _fy25_roa = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
+    _fy25_roe = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roe"].to_dict()
+    prof_df = filt_df.copy()
+    prof_df["fy25_roa"] = prof_df["id"].map(_fy25_roa)
+    prof_df["fy25_roe"] = prof_df["id"].map(_fy25_roe)
+    # FY2026 9M ann. preferred; fall back to FY2025
+    prof_df["plot_roa"]    = prof_df["fy26_roa"].where(prof_df["fy26_roa"].notna(), prof_df["fy25_roa"])
+    prof_df["plot_roe"]    = prof_df["fy26_roe"].where(prof_df["fy26_roe"].notna(), prof_df["fy25_roe"])
+    prof_df["prof_period"] = prof_df["fy26_period"].where(prof_df["fy26_period"].notna(), "FY2025")
     prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()]
 
     c1, c2 = st.columns(2)
@@ -606,10 +614,11 @@ with tab3:
     st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025 — quarterly GNPA not available via exchange filings)</p>', unsafe_allow_html=True)
 
     # Use FY2025 GNPA values specifically
-    fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(
-        columns={"nbfc_id":"_gid","gnpa_pct":"fy25_gnpa"})
-    fy25_gnpa["period"] = "FY2025"
-    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"], errors="ignore")
+    _fy25_gnpa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["gnpa_pct"].to_dict()
+    aq_df = filt_df.copy()
+    aq_df["fy25_gnpa"] = aq_df["id"].map(_fy25_gnpa_map)
+    aq_df["period"] = "FY2025"
+    aq_df = aq_df[aq_df["fy25_gnpa"].notna()]
     aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
     aq_df["label"] = aq_df["name"].str[:20]
 
