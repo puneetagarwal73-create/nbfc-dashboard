@@ -406,37 +406,53 @@ def hbar(df, x, y, title, color_col=None, color_scale="Blues", text_fmt=".1f", p
 
 # ═══ TAB 1: GROWTH ═══════════════════════════════════════════════════════════
 with tab1:
-    st.markdown('<p class="section-label">AUM Growth Rankings</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">AUM Growth Rankings — FY2024 → FY2025</p>', unsafe_allow_html=True)
     st.markdown(f'<div class="note-banner">★ Estimated data for unlisted companies — sourced from CRISIL/ICRA/CARE rating rationales, not audited accounts.</div>', unsafe_allow_html=True)
 
-    df_g = filt_df[filt_df["aum_cagr"].notna()].sort_values("aum_cagr", ascending=False).copy()
+    # Compute FY2024→FY2025 YoY growth from fins_df
+    fy24_lb = fins_df[fins_df["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
+        columns={"loan_book":"lb24","total_assets":"ta24"})
+    fy25_lb = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","loan_book","total_assets"]].rename(
+        columns={"loan_book":"lb25","total_assets":"ta25"})
+    growth_raw = fy24_lb.merge(fy25_lb, on="nbfc_id")
+    # Use loan_book if available, fall back to total_assets
+    growth_raw["base24"] = growth_raw["lb24"].combine_first(growth_raw["ta24"])
+    growth_raw["base25"] = growth_raw["lb25"].combine_first(growth_raw["ta25"])
+    growth_raw = growth_raw[(growth_raw["base24"].notna()) & (growth_raw["base25"].notna()) & (growth_raw["base24"] > 0)]
+    growth_raw["yoy_growth"] = (growth_raw["base25"] / growth_raw["base24"] - 1) * 100
+    growth_raw["period"] = "FY2024→FY2025"
+
+    df_g = filt_df.merge(growth_raw[["nbfc_id","yoy_growth","period"]], left_on="id", right_on="nbfc_id", how="inner")
+    df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g["label"] = df_g["name"].str[:20] + df_g.apply(lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
 
     c1, c2 = st.columns(2)
     with c1:
         top = df_g.head(20)
-        fig = hbar(top, "aum_cagr", "label", "Fastest Growing", color_scale="Greens", text_fmt=".1f", period_col="fy_range")
+        fig = hbar(top, "yoy_growth", "label", "Fastest Growing (FY25 vs FY24)", color_scale="Greens", text_fmt=".1f", period_col="period")
         fig.update_traces(marker_color=GREEN, opacity=0.85)
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        bot = df_g.tail(20).sort_values("aum_cagr")
-        fig2 = hbar(bot, "aum_cagr", "label", "Slowest Growing / Declining", color_scale="Reds", text_fmt=".1f", period_col="fy_range")
+        bot = df_g.tail(20).sort_values("yoy_growth")
+        fig2 = hbar(bot, "yoy_growth", "label", "Slowest Growing / Declining (FY25 vs FY24)", color_scale="Reds", text_fmt=".1f", period_col="period")
         fig2.update_traces(marker_color=RED, opacity=0.85)
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Bubble
-    st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability</p>', unsafe_allow_html=True)
-    bub = filt_df[filt_df["aum_cagr"].notna() & filt_df["avg_roa"].notna() & filt_df["disp_assets"].notna()].copy()
+    # Bubble — FY2025 growth vs FY2025 ROA
+    st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (FY2025)</p>', unsafe_allow_html=True)
+    fy25_roa = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(columns={"roa":"fy25_roa"})
+    bub = df_g.merge(fy25_roa, left_on="id", right_on="nbfc_id", how="left")
+    bub = bub[bub["fy25_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
     bub["label"] = bub["name"].str[:20]
-    fig3 = px.scatter(bub.head(top_n), x="aum_cagr", y="avg_roa", size="sz",
+    fig3 = px.scatter(bub.head(top_n), x="yoy_growth", y="fy25_roa", size="sz",
                       color="category", color_discrete_sequence=PALETTE,
                       hover_name="label",
-                      hover_data={"aum_cagr":":.1f","avg_roa":":.2f","sz":False,"fy_range":True},
-                      labels={"aum_cagr":"AUM CAGR (%)","avg_roa":"Avg ROA (%)","category":"Sector","fy_range":"Period"})
-    fig3.add_vline(x=bub["aum_cagr"].median(), line_dash="dot", line_color=BORDER, line_width=1)
+                      hover_data={"yoy_growth":":.1f","fy25_roa":":.2f","sz":False,"period":True},
+                      labels={"yoy_growth":"AUM Growth FY25 vs FY24 (%)","fy25_roa":"ROA FY2025 (%)","category":"Sector","period":"Period"})
+    fig3.add_vline(x=bub["yoy_growth"].median(), line_dash="dot", line_color=BORDER, line_width=1)
     fig3.add_hline(y=0, line_dash="dot", line_color=RED, line_width=1, opacity=0.4)
-    fig3.add_annotation(x=bub["aum_cagr"].median()+0.5, y=bub["avg_roa"].max()*0.95,
+    fig3.add_annotation(x=bub["yoy_growth"].median()+0.5, y=bub["fy25_roa"].max()*0.95,
                         text="Median growth", showarrow=False, font=dict(size=10, color=MUTED))
     style(fig3, height=460)
     st.plotly_chart(fig3, use_container_width=True)
@@ -444,26 +460,31 @@ with tab1:
 
 # ═══ TAB 2: PROFITABILITY ════════════════════════════════════════════════════
 with tab2:
-    st.markdown('<p class="section-label">Profitability — ROA & ROE</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">Profitability — ROA & ROE (FY2025)</p>', unsafe_allow_html=True)
+
+    # Get FY2025 actual roa/roe values
+    fy25_prof = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe","pat"]].copy()
+    fy25_prof["period"] = "FY2025"
+    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="nbfc_id", how="inner")
 
     c1, c2 = st.columns(2)
     with c1:
-        df_roa = filt_df[filt_df["avg_roa"].notna()].sort_values("avg_roa", ascending=False).head(20).copy()
+        df_roa = prof_df[prof_df["roa"].notna()].sort_values("roa", ascending=False).head(20).copy()
         df_roa["label"] = df_roa["name"].str[:20]
-        fig = hbar(df_roa, "avg_roa", "label", "Top 20 by Return on Assets (ROA %)",
-                   color_scale="Greens", text_fmt=".2f", period_col="fy_range")
+        fig = hbar(df_roa, "roa", "label", "Top 20 by Return on Assets — FY2025",
+                   color_scale="Greens", text_fmt=".2f", period_col="period")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        df_roe = filt_df[filt_df["avg_roe"].notna()].sort_values("avg_roe", ascending=False).head(20).copy()
+        df_roe = prof_df[prof_df["roe"].notna()].sort_values("roe", ascending=False).head(20).copy()
         df_roe["label"] = df_roe["name"].str[:20]
-        fig2 = hbar(df_roe, "avg_roe", "label", "Top 20 by Return on Equity (ROE %)",
-                    color_scale="Blues", text_fmt=".1f", period_col="fy_range")
+        fig2 = hbar(df_roe, "roe", "label", "Top 20 by Return on Equity — FY2025",
+                    color_scale="Blues", text_fmt=".1f", period_col="period")
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Sector bar
-    st.markdown('<p class="section-label" style="margin-top:8px">By Sector</p>', unsafe_allow_html=True)
-    sec = filt_df[filt_df["avg_roa"].notna()].groupby("category").agg(
-        avg_roa=("avg_roa","mean"), avg_roe=("avg_roe","mean"), n=("name","count")
+    # Sector bar — FY2025 only
+    st.markdown('<p class="section-label" style="margin-top:8px">By Sector — FY2025</p>', unsafe_allow_html=True)
+    sec = prof_df[prof_df["roa"].notna()].groupby("category").agg(
+        avg_roa=("roa","mean"), avg_roe=("roe","mean"), n=("name","count")
     ).reset_index().sort_values("avg_roa", ascending=False)
     fig3 = px.bar(sec, x="category", y=["avg_roa","avg_roe"], barmode="group",
                   color_discrete_map={"avg_roa": GREEN, "avg_roe": ACCENT},
@@ -486,25 +507,38 @@ with tab2:
 
 # ═══ TAB 3: ASSET QUALITY ════════════════════════════════════════════════════
 with tab3:
-    st.markdown('<p class="section-label">Asset Quality — GNPA %</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-label">Asset Quality — GNPA % (FY2025)</p>', unsafe_allow_html=True)
 
-    df_gq = filt_df[filt_df["latest_gnpa"].notna()].sort_values("latest_gnpa").copy()
-    df_gq["label"] = df_gq["name"].str[:20]
+    # Use FY2025 GNPA values specifically
+    fy25_gnpa = fins_df[fins_df["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(columns={"gnpa_pct":"fy25_gnpa"})
+    fy25_gnpa["period"] = "FY2025"
+    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="nbfc_id", how="inner")
+    aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
+    aq_df["label"] = aq_df["name"].str[:20]
 
     c1, c2 = st.columns(2)
     with c1:
-        top20 = df_gq.head(20)
-        fig = hbar(top20, "latest_gnpa", "label", "Cleanest Loan Books — Lowest GNPA",
-                   color_scale="Greens_r", text_fmt=".2f", period_col="latest_fy_label")
+        top20 = aq_df.head(20)
+        fig = hbar(top20, "fy25_gnpa", "label", "Cleanest Loan Books — Lowest GNPA (FY2025)",
+                   color_scale="Greens_r", text_fmt=".2f", period_col="period")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        bot20 = df_gq.tail(20).sort_values("latest_gnpa", ascending=False)
-        fig2 = hbar(bot20, "latest_gnpa", "label", "Highest NPA Stress",
-                    color_scale="Reds", text_fmt=".2f", period_col="latest_fy_label")
+        bot20 = aq_df.tail(20).sort_values("fy25_gnpa", ascending=False)
+        fig2 = hbar(bot20, "fy25_gnpa", "label", "Highest NPA Stress (FY2025)",
+                    color_scale="Reds", text_fmt=".2f", period_col="period")
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Sector trend
-    st.markdown('<p class="section-label" style="margin-top:8px">GNPA Trend by Sector</p>', unsafe_allow_html=True)
+    # Sector bar — FY2025 GNPA by sector
+    st.markdown('<p class="section-label" style="margin-top:8px">GNPA by Sector — FY2025</p>', unsafe_allow_html=True)
+    sec_fy25 = aq_df.groupby("category")["fy25_gnpa"].mean().reset_index().sort_values("fy25_gnpa", ascending=False)
+    fig_sec = px.bar(sec_fy25, x="category", y="fy25_gnpa", color="fy25_gnpa",
+                     color_continuous_scale="RdYlGn_r",
+                     labels={"fy25_gnpa":"Avg GNPA % (FY2025)","category":"Sector"})
+    fig_sec.update_layout(**PLOT_LAYOUT, height=340, xaxis_tickangle=-30, coloraxis_showscale=False)
+    st.plotly_chart(fig_sec, use_container_width=True)
+
+    # Sector trend (multi-year context)
+    st.markdown('<p class="section-label" style="margin-top:8px">GNPA Trend by Sector (Historical)</p>', unsafe_allow_html=True)
     gd = fins_df[fins_df["gnpa_pct"].notna()].merge(nbfc_df[["id","category"]], left_on="nbfc_id", right_on="id")
     gd = gd[gd["category"].isin(filt_df["category"].unique())]
     sec_g = gd.groupby(["fiscal_year","category"])["gnpa_pct"].mean().reset_index()
@@ -537,7 +571,11 @@ with tab4:
         nbfc_df[["id","name","category","data_quality"]], left_on="nbfc_id", right_on="id")
     cl_raw = cl_raw[cl_raw["name"].isin(filt_df["name"])]
 
-    latest_cl = cl_raw.sort_values("fiscal_year").groupby("name", as_index=False).last()
+    # Use FY2025 specifically; fall back to latest only for companies missing FY2025
+    fy25_cl = cl_raw[cl_raw["fiscal_year"]=="FY2025"].copy()
+    missing_fy25 = set(cl_raw["name"].unique()) - set(fy25_cl["name"].unique())
+    fallback_cl = cl_raw[cl_raw["name"].isin(missing_fy25)].sort_values("fiscal_year").groupby("name", as_index=False).last()
+    latest_cl = pd.concat([fy25_cl, fallback_cl], ignore_index=True)
     latest_cl["label"] = latest_cl["name"].str[:20] + latest_cl.apply(
         lambda r: " ★" if r.get("data_quality")=="estimated" else "", axis=1)
     latest_cl = latest_cl.sort_values("credit_cost_pct")
@@ -545,11 +583,11 @@ with tab4:
     c1, c2 = st.columns(2)
     with c1:
         fig = hbar(latest_cl.head(20), "credit_cost_pct", "label",
-                   "Lowest Credit Loss Rate (Best)", color_scale="Greens_r", text_fmt=".2f", period_col="fiscal_year")
+                   "Lowest Credit Loss Rate — FY2025", color_scale="Greens_r", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         fig2 = hbar(latest_cl.tail(20).sort_values("credit_cost_pct", ascending=False),
-                    "credit_cost_pct", "label", "Highest Credit Loss Rate (Worst)",
+                    "credit_cost_pct", "label", "Highest Credit Loss Rate — FY2025",
                     color_scale="Reds", text_fmt=".2f", period_col="fiscal_year")
         st.plotly_chart(fig2, use_container_width=True)
 
