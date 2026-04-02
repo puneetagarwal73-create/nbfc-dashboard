@@ -411,7 +411,11 @@ def apply_filters(df):
     return df
 
 fy26_df = compute_fy26_9m(fins_clean, nbfc_df)
-has_df  = has_df.merge(fy26_df, left_on="id", right_on="nbfc_id", how="left")
+# Rename nbfc_id to _fy26_id before merging to avoid duplicate column with has_df's existing nbfc_id
+has_df  = has_df.merge(
+    fy26_df.rename(columns={"nbfc_id": "_fy26_id"}),
+    left_on="id", right_on="_fy26_id", how="left"
+).drop(columns=["_fy26_id"])
 
 filt_df = apply_filters(has_df)
 
@@ -508,8 +512,7 @@ with tab1:
         g25[["nbfc_id","yoy_growth","period"]]
     ], ignore_index=True)
 
-    growth_raw = growth_raw.rename(columns={"nbfc_id":"_gid"})
-    df_g = filt_df.merge(growth_raw, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
+    df_g = filt_df.merge(growth_raw.rename(columns={"nbfc_id":"_gid"}), left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
     df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g["label"] = df_g["name"].str[:20]
 
@@ -529,7 +532,7 @@ with tab1:
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (latest available)</p>', unsafe_allow_html=True)
     fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa"]].rename(
         columns={"nbfc_id":"_roa_id","roa":"fy25_roa"})
-    bub = df_g.merge(fy25_roa_map, left_on="id", right_on="_roa_id", how="left").drop(columns=["_roa_id"])
+    bub = df_g.merge(fy25_roa_map, left_on="id", right_on="_roa_id", how="left").drop(columns=["_roa_id"], errors="ignore")
     bub["plot_roa"] = bub["fy26_roa"].combine_first(bub["fy25_roa"])
     bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
     bub["sz"] = (bub["disp_assets"].clip(upper=400000)/800).clip(lower=3)
@@ -554,7 +557,7 @@ with tab2:
     # Use FY2026 9M annualized ROA/ROE where available, fall back to FY2025
     fy25_prof = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","roa","roe"]].rename(
         columns={"nbfc_id":"_pid","roa":"fy25_roa","roe":"fy25_roe"})
-    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="_pid", how="left").drop(columns=["_pid"])
+    prof_df = filt_df.merge(fy25_prof, left_on="id", right_on="_pid", how="left").drop(columns=["_pid"], errors="ignore")
     prof_df["plot_roa"]    = prof_df["fy26_roa"].combine_first(prof_df["fy25_roa"])
     prof_df["plot_roe"]    = prof_df["fy26_roe"].combine_first(prof_df["fy25_roe"])
     prof_df["prof_period"] = prof_df["fy26_period"].fillna("FY2025")
@@ -606,7 +609,7 @@ with tab3:
     fy25_gnpa = fins_clean[fins_clean["fiscal_year"]=="FY2025"][["nbfc_id","gnpa_pct"]].rename(
         columns={"nbfc_id":"_gid","gnpa_pct":"fy25_gnpa"})
     fy25_gnpa["period"] = "FY2025"
-    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"])
+    aq_df = filt_df.merge(fy25_gnpa, left_on="id", right_on="_gid", how="inner").drop(columns=["_gid"], errors="ignore")
     aq_df = aq_df[aq_df["fy25_gnpa"].notna()].sort_values("fy25_gnpa")
     aq_df["label"] = aq_df["name"].str[:20]
 
