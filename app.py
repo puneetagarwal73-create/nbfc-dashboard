@@ -362,9 +362,9 @@ with k5:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── TABS ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "Growth", "Profitability", "Asset Quality",
-    "Credit Losses", "Trends", "Deep Dive", "Valuation", "Universe", "Data",
+    "Credit Losses", "Trends", "Deep Dive", "Valuation", "Universe", "Data", "SQL",
 ])
 
 # helper: consistent chart styling
@@ -999,3 +999,126 @@ with tab9:
         fe = fe[fe["name"].str.contains(search, case=False, na=False)]
     drop = [c for c in ["id_x","id_y","nbfc_id"] if c in fe.columns]
     st.dataframe(fe.drop(columns=drop), use_container_width=True, height=380)
+
+
+# ═══ TAB 10: SQL ══════════════════════════════════════════════════════════════
+with tab10:
+    st.markdown('<p class="section-label">SQL Query Explorer</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="note-banner">Run any SELECT query against the database. Results export to CSV. Only SELECT queries are allowed.</div>', unsafe_allow_html=True)
+
+    # ── Schema reference ──
+    with st.expander("📋 Table Reference — click to expand"):
+        st.markdown(f"""
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px;color:{SUBTEXT}">
+<div>
+<b style="color:{TEXT}">companies</b><br>
+id, name, short_name, sector, business_type, rbi_layer,<br>
+listed, nse_ticker, data_quality, promoter_group
+</div>
+<div>
+<b style="color:{TEXT}">income_statement</b><br>
+company_id, period, period_type, period_end_date,<br>
+net_interest_income, net_credit_losses, credit_cost_pct, pat, source
+</div>
+<div>
+<b style="color:{TEXT}">balance_sheet</b><br>
+company_id, period, period_type, period_end_date,<br>
+loan_book, total_assets, total_equity, source
+</div>
+<div>
+<b style="color:{TEXT}">key_ratios</b><br>
+company_id, period, period_type, period_end_date,<br>
+roa, roe, gnpa_pct, credit_cost_pct, leverage_ratio,<br>
+loan_book_growth, asset_growth, pat_growth
+</div>
+<div>
+<b style="color:{TEXT}">valuation_snapshots</b><br>
+company_id, snapshot_date, price, market_cap_cr,<br>
+pe_ttm, pb_ratio, price_chg_1m, price_chg_12m
+</div>
+<div>
+<b style="color:{TEXT}">data_sources</b><br>
+company_id, period, source_type, source_url,<br>
+fetched_date, verified
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Example queries ──
+    EXAMPLES = {
+        "Top 15 by ROA (FY2025)": """SELECT c.short_name, c.sector, k.roa, k.roe, k.gnpa_pct, k.leverage_ratio
+FROM key_ratios k JOIN companies c ON k.company_id = c.id
+WHERE k.period = 'FY2025' AND c.listed = 1
+ORDER BY k.roa DESC
+LIMIT 15""",
+
+        "Loan book growth FY2021→FY2025": """SELECT c.short_name, c.sector,
+  MAX(CASE WHEN b.period='FY2021' THEN b.loan_book END) AS lb_fy21,
+  MAX(CASE WHEN b.period='FY2025' THEN b.loan_book END) AS lb_fy25,
+  ROUND((MAX(CASE WHEN b.period='FY2025' THEN b.loan_book END) /
+         MAX(CASE WHEN b.period='FY2021' THEN b.loan_book END) - 1) * 100, 1) AS growth_pct
+FROM balance_sheet b JOIN companies c ON b.company_id = c.id
+GROUP BY c.id HAVING lb_fy21 IS NOT NULL AND lb_fy25 IS NOT NULL
+ORDER BY growth_pct DESC""",
+
+        "Microfinance sector stress FY2024→FY2025": """SELECT c.short_name,
+  MAX(CASE WHEN k.period='FY2024' THEN k.gnpa_pct END) AS gnpa_fy24,
+  MAX(CASE WHEN k.period='FY2025' THEN k.gnpa_pct END) AS gnpa_fy25,
+  MAX(CASE WHEN k.period='FY2024' THEN i.pat END) AS pat_fy24,
+  MAX(CASE WHEN k.period='FY2025' THEN i.pat END) AS pat_fy25
+FROM key_ratios k
+JOIN companies c ON k.company_id = c.id
+JOIN income_statement i ON i.company_id = k.company_id AND i.period = k.period
+WHERE c.sector = 'Microfinance'
+GROUP BY c.id ORDER BY gnpa_fy25 DESC""",
+
+        "PAT trend for top 10 companies": """SELECT c.short_name, i.period, i.pat, i.net_interest_income
+FROM income_statement i JOIN companies c ON i.company_id = c.id
+WHERE c.id IN (
+  SELECT company_id FROM balance_sheet WHERE period='FY2025'
+  ORDER BY total_assets DESC LIMIT 10
+) AND i.period_type = 'annual'
+ORDER BY c.short_name, i.period""",
+
+        "Data sources audit": """SELECT c.short_name, c.sector, d.source_type, d.period, d.verified, d.source_url
+FROM data_sources d JOIN companies c ON d.company_id = c.id
+ORDER BY d.source_type, c.short_name""",
+
+        "Housing finance comparison FY2025": """SELECT c.short_name,
+  b.loan_book, b.total_assets, b.total_equity,
+  k.roa, k.roe, k.gnpa_pct
+FROM balance_sheet b
+JOIN companies c ON b.company_id = c.id
+JOIN key_ratios k ON k.company_id = c.id AND k.period = b.period
+WHERE c.sector IN ('Housing Finance','Affordable Housing') AND b.period = 'FY2025'
+ORDER BY b.loan_book DESC""",
+    }
+
+    col_ex, col_run = st.columns([3, 1])
+    with col_ex:
+        selected_example = st.selectbox("Load an example query", ["— write your own —"] + list(EXAMPLES.keys()), label_visibility="collapsed")
+
+    default_query = EXAMPLES.get(selected_example, "SELECT c.short_name, c.sector, k.roa, k.roe, k.gnpa_pct\nFROM key_ratios k JOIN companies c ON k.company_id = c.id\nWHERE k.period = 'FY2025'\nORDER BY k.roa DESC\nLIMIT 20")
+
+    query = st.text_area("SQL query", value=default_query, height=160, label_visibility="collapsed")
+
+    run_col, dl_col, _ = st.columns([1, 1, 5])
+    run = run_col.button("▶ Run Query", type="primary", use_container_width=True)
+
+    if run or selected_example != "— write your own —":
+        q = query.strip()
+        if not q.lower().startswith("select"):
+            st.error("Only SELECT queries are allowed.")
+        else:
+            try:
+                conn_sql = sqlite3.connect(DB_PATH)
+                result_df = pd.read_sql(q, conn_sql)
+                conn_sql.close()
+                st.caption(f"{len(result_df)} rows returned")
+                st.dataframe(result_df, use_container_width=True, height=500)
+                dl_col.download_button(
+                    "⬇️ CSV", result_df.to_csv(index=False),
+                    "query_result.csv", "text/csv", use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Query error: {e}")
