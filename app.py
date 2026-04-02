@@ -411,11 +411,12 @@ def apply_filters(df):
     return df
 
 fy26_df = compute_fy26_9m(fins_clean, nbfc_df)
-# Rename nbfc_id to _fy26_id before merging to avoid duplicate column with has_df's existing nbfc_id
-has_df  = has_df.merge(
-    fy26_df.rename(columns={"nbfc_id": "_fy26_id"}),
-    left_on="id", right_on="_fy26_id", how="left"
-).drop(columns=["_fy26_id"])
+# Build dict lookups keyed by nbfc_id — never merge fy26_df into has_df/filt_df
+# to avoid any risk of duplicate column names
+_fy26 = fy26_df.set_index("nbfc_id").to_dict(orient="index")  # {nbfc_id: {col: val, ...}}
+def _f26(col):
+    """Return a dict mapping nbfc_id → fy26 column value."""
+    return {k: v[col] for k, v in _fy26.items() if v.get(col) is not None}
 
 filt_df = apply_filters(has_df)
 
@@ -488,15 +489,19 @@ with tab1:
     fy24_base = fins_clean[fins_clean["fiscal_year"]=="FY2024"][["nbfc_id","loan_book","total_assets"]].rename(
         columns={"loan_book":"lb24","total_assets":"ta24"})
 
-    # FY2026 Q3 loan book from fy26_df
-    fy26_lb = fy26_df[fy26_df["fy26_loan_book"].notna()][["nbfc_id","fy26_loan_book","fy26_period"]]
+    # FY2026 Q3 loan book from dict lookups
+    _fy26_lb_map  = _f26("fy26_loan_book")
+    _fy26_per_map = _f26("fy26_period")
+    fy26_lb = fy25_base[fy25_base["nbfc_id"].isin(_fy26_lb_map)].copy()
+    fy26_lb["fy26_loan_book"] = fy26_lb["nbfc_id"].map(_fy26_lb_map)
+    fy26_lb["fy26_period"]    = fy26_lb["nbfc_id"].map(_fy26_per_map)
 
     # Companies with FY2026 loan book: compute FY25→FY26 growth
-    g26 = fy25_base.merge(fy26_lb, on="nbfc_id")
+    g26 = fy26_lb.copy()
     g26["base25"] = g26["lb25"].combine_first(g26["ta25"])
-    g26 = g26[g26["base25"].notna() & g26["base25"] > 0]
+    g26 = g26[g26["base25"].notna() & (g26["base25"] > 0)]
     g26["yoy_growth"] = (g26["fy26_loan_book"] / g26["base25"] - 1) * 100
-    g26["period"] = "FY2025→" + g26["fy26_period"].str.extract(r'(9M FY\d+)')[0].fillna("FY2026(Q3)")
+    g26["period"] = "FY2025→FY2026(Q3)"
 
     # Companies without FY2026 loan book: FY24→FY25 growth
     g25 = fy24_base.merge(fy25_base, on="nbfc_id")
@@ -517,8 +522,6 @@ with tab1:
     df_g = filt_df[filt_df["id"].isin(_growth_map)].copy()
     df_g["yoy_growth"] = df_g["id"].map(_growth_map)
     df_g["period"]     = df_g["id"].map(_period_map)
-    df_g = df_g.sort_values("yoy_growth", ascending=False)
-    df_g = df_g.sort_values("yoy_growth", ascending=False)
     df_g["label"] = df_g["name"].str[:20]
 
     c1, c2 = st.columns(2)
@@ -536,7 +539,9 @@ with tab1:
     # Bubble — growth vs latest ROA (FY2026 9M ann. preferred, else FY2025)
     st.markdown('<p class="section-label" style="margin-top:8px">Growth vs Profitability (latest available)</p>', unsafe_allow_html=True)
     _fy25_roa_map = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
+    _fy26_roa_map = _f26("fy26_roa")
     bub = df_g.copy()
+    bub["fy26_roa"] = bub["id"].map(_fy26_roa_map)
     bub["fy25_roa"] = bub["id"].map(_fy25_roa_map)
     bub["plot_roa"] = bub["fy26_roa"].where(bub["fy26_roa"].notna(), bub["fy25_roa"])
     bub = bub[bub["plot_roa"].notna() & bub["disp_assets"].notna()]
@@ -559,16 +564,22 @@ with tab1:
 with tab2:
     st.markdown('<p class="section-label">Profitability — ROA & ROE (FY2025)</p>', unsafe_allow_html=True)
 
-    # Map FY2025 roa/roe via dictionaries — avoids any merge that could duplicate columns
-    _fy25_roa = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
-    _fy25_roe = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roe"].to_dict()
+    # All lookups via dicts — zero column duplication risk
+    _fy25_roa    = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roa"].to_dict()
+    _fy25_roe    = fins_clean[fins_clean["fiscal_year"]=="FY2025"].set_index("nbfc_id")["roe"].to_dict()
+    _fy26_roa_p  = _f26("fy26_roa")
+    _fy26_roe_p  = _f26("fy26_roe")
+    _fy26_per_p  = _f26("fy26_period")
     prof_df = filt_df.copy()
-    prof_df["fy25_roa"] = prof_df["id"].map(_fy25_roa)
-    prof_df["fy25_roe"] = prof_df["id"].map(_fy25_roe)
+    prof_df["fy25_roa"]    = prof_df["id"].map(_fy25_roa)
+    prof_df["fy25_roe"]    = prof_df["id"].map(_fy25_roe)
+    prof_df["fy26_roa"]    = prof_df["id"].map(_fy26_roa_p)
+    prof_df["fy26_roe"]    = prof_df["id"].map(_fy26_roe_p)
+    prof_df["fy26_period"] = prof_df["id"].map(_fy26_per_p)
     # FY2026 9M ann. preferred; fall back to FY2025
     prof_df["plot_roa"]    = prof_df["fy26_roa"].where(prof_df["fy26_roa"].notna(), prof_df["fy25_roa"])
     prof_df["plot_roe"]    = prof_df["fy26_roe"].where(prof_df["fy26_roe"].notna(), prof_df["fy25_roe"])
-    prof_df["prof_period"] = prof_df["fy26_period"].where(prof_df["fy26_period"].notna(), "FY2025")
+    prof_df["prof_period"] = prof_df["fy26_period"].fillna("FY2025")
     prof_df = prof_df[prof_df["plot_roa"].notna() | prof_df["plot_roe"].notna()]
 
     c1, c2 = st.columns(2)
